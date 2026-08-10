@@ -961,7 +961,10 @@ const NavigationHandler: React.FC<{
   // Helper: check if a feature is accessible for the current user.
   const feat = (feature: string): boolean => {
     if (isAdminForFeatures) return true;
-    if (!featuresLoaded) return false;
+    // Guests always resolve to '*' (all public surfaces) and are never held by the auth
+    // loading screen, so denying them while flags are still in flight only produces false
+    // "unavailable" screens and redirects back to "/". Signed-in users do wait for flags.
+    if (!featuresLoaded) return role === 'guest';
     const allowed = isFeatureEnabled(enabledFeatures, feature, role);
     return allowed;
   };
@@ -1953,8 +1956,11 @@ const App: React.FC = () => {
         setUserAvatar(null);
         setCurrentUserId(null);
         setTwoFactorPending(false);
-        setFeaturesLoaded(false);
-        setEnabledFeatures(new Set());
+        // Guests have a fixed feature set ('*' = all public surfaces), so there is nothing to
+        // fetch — mark it loaded right away. Leaving it unloaded made feat() deny everything
+        // until the 5s feature poll ticked, which bounced guest navbar clicks back to "/".
+        setEnabledFeatures(new Set(['*']));
+        setFeaturesLoaded(true);
         setIsActualAdmin(false);
         localStorage.removeItem('is_actual_admin');
         setAuthTransitioning(false);
