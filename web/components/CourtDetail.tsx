@@ -33,6 +33,7 @@ import { MessageSquare, X, CircleCheck } from 'lucide-react';
 import Receipt from './Receipt';
 import { getLocationPolicies, LocationPolicy } from '../services/policies';
 import { getSlotPrices, PricingRule, fetchCourtPricingRules, getSlotPrice } from '../services/courtPricingService';
+import { createMap, createPinIcon, L } from '../services/leafletMap';
 
 const ALL_HOUR_SLOTS = [
     '12:00 AM', '01:00 AM', '02:00 AM', '03:00 AM', '04:00 AM', '05:00 AM',
@@ -127,32 +128,33 @@ const isSlotInPast = (slot: string, selectedDate: Date): boolean => {
 
 const MiniMap: React.FC<{ lat: number; lng: number }> = ({ lat, lng }) => {
     const mapRef = useRef<HTMLDivElement>(null);
+    const mapInstance = useRef<L.Map | null>(null);
+    const markerRef = useRef<L.Marker | null>(null);
+
     useEffect(() => {
-        if (mapRef.current && window.google) {
-            const map = new window.google.maps.Map(mapRef.current, {
-                center: { lat, lng },
+        if (!mapRef.current) return;
+
+        if (!mapInstance.current) {
+            // Pan is allowed, wheel zoom is not (the page scrolls instead)
+            mapInstance.current = createMap(mapRef.current, {
+                center: [lat, lng],
                 zoom: 16,
-                disableDefaultUI: true,
-                gestureHandling: 'cooperative',
-                styles: [
-                    {
-                        featureType: 'poi',
-                        elementType: 'labels',
-                        stylers: [{ visibility: 'off' }]
-                    }
-                ]
+                tileStyle: 'light',
+                scrollWheelZoom: false,
             });
-            new window.google.maps.Marker({
-                position: { lat, lng },
-                map,
-                icon: {
-                    url: '/images/PinMarker.png',
-                    scaledSize: new window.google.maps.Size(42, 60),
-                    anchor: new window.google.maps.Point(21, 60)
-                },
-            });
+            markerRef.current = L.marker([lat, lng], { icon: createPinIcon() }).addTo(mapInstance.current);
+        } else {
+            mapInstance.current.setView([lat, lng], mapInstance.current.getZoom());
+            markerRef.current?.setLatLng([lat, lng]);
         }
     }, [lat, lng]);
+
+    useEffect(() => () => {
+        mapInstance.current?.remove();
+        mapInstance.current = null;
+        markerRef.current = null;
+    }, []);
+
     return <div ref={mapRef} className="w-full h-full rounded-xl overflow-hidden border border-slate-200" />;
 };
 

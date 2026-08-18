@@ -740,3 +740,51 @@
   border-left: 4px solid #2563eb;
   padding-left: 0.875rem;
 }
+/* ─── Leaflet maps ─────────────────────────────────────────────────────
+   The map panes use z-index values up to 800 internally, so the container
+   gets its own stacking context to keep floating UI (buttons, sheets) on top. */
+.leaflet-container {
+  font-family: 'Inter', sans-serif;
+  background: #e8eef3;
+  position: relative;
+  z-index: 0;
+}
+
+.leaflet-container .leaflet-control-attribution {
+  font-size: 9px;
+  background: rgba(255, 255, 255, 0.75);
+  color: #64748b;
+}
+
+.leaflet-container .leaflet-control-attribution a {
+  color: #2563eb;
+}
+
+/* Non-interactive preview maps keep the default cursor */
+.leaflet-container.pp-map-static {
+  cursor: default;
+}
+
+/* Location info bubble — image bleeds to the edges, no padding, no close button */
+.pp-map-popup .leaflet-popup-content-wrapper {
+  padding: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.pp-map-popup .leaflet-popup-content {
+  margin: 0;
+  overflow: hidden;
+  line-height: normal;
+}
+
+.pp-map-popup .leaflet-popup-tip {
+  box-shadow: none;
+}
+
+/* Circle markers rendered as divIcons */
+.pp-map-dot {
+  background: transparent;
+  border: 0;
+}

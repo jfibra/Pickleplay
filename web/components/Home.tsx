@@ -31,6 +31,7 @@ import {
 import { Product, Tournament } from '../types';
 import { supabase } from '../services/supabase';
 import { fetchTournaments as fetchTournamentsService } from '../services/tournaments';
+import { reverseGeocode, getComponent } from '../services/geocoding';
 
 const HERO_IMAGES = [
   "/images/home-images/pb1.jpg",
@@ -476,50 +477,22 @@ const Home: React.FC = () => {
           let fallbackCity = nearestCourt?.city || 'Your Location';
           let fallbackRegion = nearestCourt?.region || 'Luzon';
 
-          // Reverse geocode to get city name using Google Maps API
+          // Reverse geocode to get the city name (OpenStreetMap / Nominatim)
           try {
-            const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-            if (apiKey) {
-              const response = await fetch(
-                `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${apiKey}`
-              );
-              const data = await response.json();
-              if (data.results && data.results.length > 0) {
-                const addressComponents = data.results[0].address_components;
-                let city = '';
-                let country = '';
-                let postalCode = '';
-                let adminArea = '';
+            const geocoded = await reverseGeocode(latitude, longitude);
+            if (geocoded) {
+              const city = getComponent(geocoded, ['locality']);
+              const adminArea = getComponent(geocoded, ['administrative_area_level_1', 'administrative_area_level_2']);
 
-                for (const component of addressComponents) {
-                  if (component.types.includes('locality')) {
-                    city = component.long_name;
-                  }
-                  if (component.types.includes('country')) {
-                    country = component.long_name;
-                  }
-                  if (component.types.includes('postal_code')) {
-                    postalCode = component.long_name;
-                  }
-                  if (component.types.includes('administrative_area_level_1') || component.types.includes('administrative_area_level_2')) {
-                    if (!adminArea) adminArea = component.long_name;
-                  }
-                }
+              // Build display string - just the city/admin area name for the header
+              const displayCity = city || adminArea || fallbackCity;
+              setUserCity(displayCity);
 
-                // Build display string - just the city/admin area name for the header
-                let displayCity = city || adminArea || fallbackCity;
-                setUserCity(displayCity);
-
-                // Determine region based on city
-                const region = getRegion(city || adminArea || fallbackCity);
-                setUserRegion(region);
-              } else {
-                // No results from geocoding, use fallback
-                setUserCity(fallbackCity);
-                setUserRegion(fallbackRegion);
-              }
+              // Determine region based on city
+              const region = getRegion(city || adminArea || fallbackCity);
+              setUserRegion(region);
             } else {
-              // No API key, use fallback from nearest court
+              // No results from geocoding, use fallback
               setUserCity(fallbackCity);
               setUserRegion(fallbackRegion);
             }

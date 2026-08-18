@@ -7,6 +7,8 @@ import MarketingPosterModal, { PosterData } from '../MarketingPosterModal';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import type { CourtManagerAssignment } from '../../types';
 import { approveCourtManager, assignCourtManager, getCourtManagerAssignments, getCurrentActiveRole, getCurrentCourtManagerContext, removeCourtManager } from '../../services/courtManagers';
+import { geocodeToCoords, reverseGeocode as reverseGeocodeCoords, getComponent } from '../../services/geocoding';
+import { createMap, createDotIcon, MANILA, L } from '../../services/leafletMap';
 
 interface Court {
     id: string;
@@ -89,20 +91,8 @@ const Courts: React.FC = () => {
     const [isGeocoding, setIsGeocoding] = useState(false);
 
     const geocodeAddress = async (address: string, city: string): Promise<{ lat: number; lng: number } | null> => {
-        if (!window.google || !address || !city) return null;
-        const geocoder = new window.google.maps.Geocoder();
-        const fullAddress = `${address}, ${city}, Philippines`;
-
-        return new Promise((resolve) => {
-            geocoder.geocode({ address: fullAddress }, (results: any, status: any) => {
-                if (status === 'OK' && results[0]) {
-                    const { lat, lng } = results[0].geometry.location;
-                    resolve({ lat: lat(), lng: lng() });
-                } else {
-                    resolve(null);
-                }
-            });
-        });
+        if (!address || !city) return null;
+        return geocodeToCoords(`${address}, ${city}, Philippines`);
     };
 
     // Debounced geocoding for preview
@@ -1024,8 +1014,8 @@ const MapPreview: React.FC<{
 }> = ({ coords, onCoordsChange, onAddressChange }) => {
     const [isLocating, setIsLocating] = React.useState(false);
     const mapRef = React.useRef<HTMLDivElement>(null);
-    const googleMapRef = React.useRef<any>(null);
-    const markerRef = React.useRef<any>(null);
+    const mapInstance = React.useRef<L.Map | null>(null);
+    const markerRef = React.useRef<L.Marker | null>(null);
 
     const handlePinToGPS = () => {
         if (!navigator.geolocation) {
@@ -1051,103 +1041,75 @@ const MapPreview: React.FC<{
         );
     };
 
-    const reverseGeocode = (lat: number, lng: number) => {
-        if (!window.google) return;
-        const geocoder = new window.google.maps.Geocoder();
-        geocoder.geocode({ location: { lat, lng } }, (results: any, status: any) => {
-            if (status === 'OK' && results[0]) {
-                const result = results[0];
-                let streetAddress = '';
-                let city = '';
+    const reverseGeocode = async (lat: number, lng: number) => {
+        const result = await reverseGeocodeCoords(lat, lng);
+        if (!result) return;
 
-                // Extract street address and city from components
-                const addressComponents = result.address_components;
-                const streetNum = addressComponents.find((c: any) => c.types.includes('street_number'))?.long_name || '';
-                const route = addressComponents.find((c: any) => c.types.includes('route'))?.long_name || '';
-                const neighborhood = addressComponents.find((c: any) => c.types.includes('neighborhood'))?.long_name || '';
-                const locality = addressComponents.find((c: any) => c.types.includes('locality'))?.long_name || '';
-                const adminArea2 = addressComponents.find((c: any) => c.types.includes('administrative_area_level_2'))?.long_name || '';
+        // Extract street address and city from components
+        const streetNum = getComponent(result, ['street_number']);
+        const route = getComponent(result, ['route']);
+        const neighborhood = getComponent(result, ['neighborhood']);
+        const locality = getComponent(result, ['locality']);
+        const adminArea2 = getComponent(result, ['administrative_area_level_2']);
 
-                streetAddress = `${streetNum} ${route} ${neighborhood}`.trim();
-                city = locality || adminArea2 || '';
+        const streetAddress = `${streetNum} ${route} ${neighborhood}`.trim();
+        const city = locality || adminArea2 || '';
 
-                if (onAddressChange) {
-                    onAddressChange(streetAddress || result.formatted_address.split(',')[0], city);
-                }
-            }
-        });
+        if (onAddressChange) {
+            onAddressChange(streetAddress || result.formatted_address.split(',')[0], city);
+        }
     };
 
     useEffect(() => {
-        if (mapRef.current && window.google) {
-            if (!googleMapRef.current) {
-                googleMapRef.current = new window.google.maps.Map(mapRef.current, {
-                    center: coords || { lat: 14.5995, lng: 120.9842 }, // Default to Manila
-                    zoom: 15,
-                    disableDefaultUI: true,
-                    zoomControl: true,
-                    mapTypeControl: false,
-                    streetViewControl: false,
-                    fullscreenControl: false,
-                    gestureHandling: 'greedy',
-                    styles: [
-                        {
-                            featureType: 'poi',
-                            elementType: 'labels',
-                            stylers: [{ visibility: 'off' }]
-                        },
-                        {
-                            "featureType": "water",
-                            "elementType": "geometry",
-                            "stylers": [{ "color": "#e9e9e9" }, { "lightness": 17 }]
-                        }
-                    ]
-                });
+        if (!mapRef.current) return;
 
-                // Add Click to Pin
-                googleMapRef.current.addListener('click', (e: any) => {
-                    const lat = e.latLng.lat();
-                    const lng = e.latLng.lng();
-                    if (onCoordsChange) onCoordsChange({ lat, lng });
-                    reverseGeocode(lat, lng);
-                });
+        if (!mapInstance.current) {
+            mapInstance.current = createMap(mapRef.current, {
+                center: coords ? [coords.lat, coords.lng] : MANILA, // Default to Manila
+                zoom: 15,
+                zoomControl: true,
+            });
 
-                markerRef.current = new window.google.maps.Marker({
-                    position: coords,
-                    map: googleMapRef.current,
-                    draggable: true,
-                    icon: {
-                        path: window.google.maps.SymbolPath.CIRCLE,
-                        scale: 14,
-                        fillColor: '#2562eb',
-                        fillOpacity: 1,
-                        strokeColor: '#ffffff',
-                        strokeWeight: 3,
-                    },
-                });
+            // Add Click to Pin
+            mapInstance.current.on('click', (e: L.LeafletMouseEvent) => {
+                const { lat, lng } = e.latlng;
+                if (onCoordsChange) onCoordsChange({ lat, lng });
+                reverseGeocode(lat, lng);
+            });
 
-                markerRef.current.addListener('dragend', () => {
-                    const newPos = markerRef.current.getPosition();
-                    const lat = newPos.lat();
-                    const lng = newPos.lng();
+            markerRef.current = L.marker(coords ? [coords.lat, coords.lng] : MANILA, {
+                draggable: true,
+                opacity: coords ? 1 : 0,
+                icon: createDotIcon({ size: 28, color: '#2562eb' }),
+            }).addTo(mapInstance.current);
 
-                    if (onCoordsChange) {
-                        onCoordsChange({ lat, lng });
-                    }
-                    reverseGeocode(lat, lng);
-                });
-            } else if (coords) {
-                const markerPos = markerRef.current.getPosition();
-                const dist = markerPos ? (Math.abs(markerPos.lat() - coords.lat) + Math.abs(markerPos.lng() - coords.lng)) : 1;
+            markerRef.current.on('dragend', () => {
+                const newPos = markerRef.current!.getLatLng();
+                const lat = newPos.lat;
+                const lng = newPos.lng;
 
-                if (dist > 0.0001) {
-                    googleMapRef.current.panTo(coords);
-                    markerRef.current.setPosition(coords);
-                    markerRef.current.setVisible(true);
+                if (onCoordsChange) {
+                    onCoordsChange({ lat, lng });
                 }
+                reverseGeocode(lat, lng);
+            });
+        } else if (coords) {
+            const markerPos = markerRef.current?.getLatLng();
+            const dist = markerPos ? (Math.abs(markerPos.lat - coords.lat) + Math.abs(markerPos.lng - coords.lng)) : 1;
+
+            if (dist > 0.0001) {
+                mapInstance.current.panTo([coords.lat, coords.lng]);
+                markerRef.current?.setLatLng([coords.lat, coords.lng]);
+                markerRef.current?.setOpacity(1);
             }
         }
     }, [coords]);
+
+    useEffect(() => () => {
+        mapInstance.current?.remove();
+        mapInstance.current = null;
+        markerRef.current = null;
+    }, []);
 
     return (
         <div className="w-full h-full relative">

@@ -15,6 +15,8 @@ import Toast, { ToastType } from './ui/Toast';
 import WeeklyPricingMultiCourtTable from './ui/WeeklyPricingMultiCourtTable';
 import { getSlotPrices, PricingRule, fetchCourtPricingRules, getSlotPrice } from '../services/courtPricingService';
 import { getEffectiveHours, type EffectiveHours } from '../services/courtOperationHours';
+import { reverseGeocode, geocodeToCoords, getComponent } from '../services/geocoding';
+import { createMap, createPinIcon, createDotIcon, refreshMapSize, POPUP_OPTIONS, PHILIPPINES_CENTER, L } from '../services/leafletMap';
 
 // Always use hourly slots for simplicity
 const ALL_HOUR_SLOTS = [
@@ -726,30 +728,13 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
 
       // Try reverse geocoding
       try {
-        const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-        if (apiKey) {
-          const response = await fetch(
-            `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${apiKey}`
-          );
-          const data = await response.json();
-          if (data.results && data.results.length > 0) {
-            const addressComponents = data.results[0].address_components;
-            let city = '';
-            let adminArea = '';
-
-            for (const component of addressComponents) {
-              if (component.types.includes('locality')) {
-                city = component.long_name;
-              }
-              if (component.types.includes('administrative_area_level_1')) {
-                adminArea = component.long_name;
-              }
-            }
-
-            const detectedCity = city || adminArea || 'Your Location';
-            setUserCity(detectedCity);
-            setUserRegion(getRegion(detectedCity));
-          }
+        const geocoded = await reverseGeocode(latitude, longitude);
+        if (geocoded) {
+          const city = getComponent(geocoded, ['locality']);
+          const adminArea = getComponent(geocoded, ['administrative_area_level_1']);
+          const detectedCity = city || adminArea || 'Your Location';
+          setUserCity(detectedCity);
+          setUserRegion(getRegion(detectedCity));
         }
       } catch (err) {
         console.error('Error getting city name:', err);
@@ -896,65 +881,42 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
   }, [urlLocationId]);
 
   const mapRef = useRef<HTMLDivElement>(null);
-  const googleMapRef = useRef<any>(null);
-  const markersRef = useRef<any[]>([]);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<L.Marker[]>([]);
   const userMarkerRef = useRef<any>(null);
-  const userLocationMarkerRef = useRef<any>(null);
-  const pulseCirclesRef = useRef<any[]>([]);
+  const userLocationMarkerRef = useRef<L.LayerGroup | null>(null);
+  const pulseCirclesRef = useRef<L.Circle[]>([]);
 
   const centerSelectedLocationOnMap = useCallback(() => {
-    if (!googleMapRef.current || !window.google || !selectedLocation?.latitude || !selectedLocation?.longitude) return;
-    googleMapRef.current.panTo({ lat: selectedLocation.latitude, lng: selectedLocation.longitude });
-    smoothZoom(15);
+    if (!mapInstanceRef.current || !selectedLocation?.latitude || !selectedLocation?.longitude) return;
+    flyToLatLng(selectedLocation.latitude, selectedLocation.longitude, 15);
     triggerPulse(selectedLocation.latitude, selectedLocation.longitude);
   }, [selectedLocation]);
 
-  const smoothZoom = (targetZoom: number) => {
-    if (!googleMapRef.current || !window.google) return;
-    const map = googleMapRef.current;
-    const currentZoom = map.getZoom();
-    if (currentZoom === targetZoom) return;
-
-    const duration = 600;
-    const startTime = performance.now();
-
-    const animateZoom = (now: number) => {
-      const elapsed = now - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-
-      // Smooth Ease-in-out Cubic
-      const eased = progress < 0.5
-        ? 4 * progress * progress * progress
-        : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-
-      const zoom = currentZoom + (targetZoom - currentZoom) * eased;
-      map.setZoom(zoom);
-
-      if (progress < 1) {
-        requestAnimationFrame(animateZoom);
-      }
-    };
-    requestAnimationFrame(animateZoom);
+  /** Animated pan (and optional zoom) to a point. */
+  const flyToLatLng = (lat: number, lng: number, targetZoom?: number) => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    map.flyTo([lat, lng], targetZoom ?? map.getZoom(), { duration: 0.7 });
   };
 
   const triggerPulse = (lat: number, lng: number) => {
-    if (!googleMapRef.current || !window.google) return;
+    const map = mapInstanceRef.current;
+    if (!map) return;
 
     // Clear existing pulse circles
-    pulseCirclesRef.current.forEach(c => c.setMap(null));
+    pulseCirclesRef.current.forEach(c => c.remove());
     pulseCirclesRef.current = [];
 
-    const pulseCircle = new window.google.maps.Circle({
-      strokeColor: '#a3e635',
-      strokeOpacity: 0.8,
-      strokeWeight: 2,
+    const pulseCircle = L.circle([lat, lng], {
+      color: '#a3e635',
+      opacity: 0.8,
+      weight: 2,
       fillColor: '#a3e635',
       fillOpacity: 0.4,
-      map: googleMapRef.current,
-      center: { lat, lng },
       radius: 1,
-      zIndex: 1000,
-    });
+      interactive: false,
+    }).addTo(map);
 
     pulseCirclesRef.current.push(pulseCircle);
 
@@ -970,18 +932,18 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
       const eased = 1 - Math.pow(1 - progress, 3);
       const currentRadius = 1 + (maxRadius - 1) * eased;
 
-      if (pulseCircle.getMap()) {
+      if (map.hasLayer(pulseCircle)) {
         pulseCircle.setRadius(currentRadius);
-        pulseCircle.setOptions({
+        pulseCircle.setStyle({
           fillOpacity: 0.4 * (1 - progress),
-          strokeOpacity: 0.8 * (1 - progress)
+          opacity: 0.8 * (1 - progress)
         });
       }
 
       if (progress < 1) {
         requestAnimationFrame(animatePulse);
       } else {
-        pulseCircle.setMap(null);
+        pulseCircle.remove();
         pulseCirclesRef.current = pulseCirclesRef.current.filter(c => c !== pulseCircle);
       }
     };
@@ -1112,7 +1074,7 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
   }, [selectedCourt]);
 
   const handleSearch = async (query: string) => {
-    if (!query || !window.google) return;
+    if (!query) return;
 
     // First check if it matches a court/location name exactly
     const matchingCourt = courts.find(c =>
@@ -1120,30 +1082,16 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
       c.location.toLowerCase().includes(query.toLowerCase())
     );
 
-    if (matchingCourt && googleMapRef.current && matchingCourt.latitude && matchingCourt.longitude) {
-      googleMapRef.current.panTo({ lat: matchingCourt.latitude, lng: matchingCourt.longitude });
-      googleMapRef.current.setZoom(15);
+    if (matchingCourt && mapInstanceRef.current && matchingCourt.latitude && matchingCourt.longitude) {
+      flyToLatLng(matchingCourt.latitude, matchingCourt.longitude, 15);
       triggerPulse(matchingCourt.latitude, matchingCourt.longitude);
       return;
     }
 
-    // Otherwise, use Geocoding API to find the place
+    // Otherwise, geocode the query to find the place
     try {
-      const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-      if (!apiKey) return;
-
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${apiKey}`
-      );
-      const data = await response.json();
-
-      if (data.results && data.results.length > 0) {
-        const { lat, lng } = data.results[0].geometry.location;
-        if (googleMapRef.current) {
-          googleMapRef.current.panTo({ lat, lng });
-          googleMapRef.current.setZoom(14);
-        }
-      }
+      const coords = await geocodeToCoords(query);
+      if (coords) flyToLatLng(coords.lat, coords.lng, 14);
     } catch (err) {
       console.error('Search geocoding error:', err);
     }
@@ -1610,106 +1558,76 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
     };
   }, [selectedCourt]);
 
-  // Initialize the Google Map once the container is available
+  // Initialize the Leaflet map once the container is available
   useEffect(() => {
-    if (isLoading || !mapRef.current || !window.google) return;
+    if (isLoading || !mapRef.current) return;
 
-    // If map already exists and is attached to this DOM element, skip
-    if (googleMapRef.current) return;
+    // Map already built on this element? Nothing to do. If the container was
+    // replaced (the map div unmounts while courts reload), rebuild on the new node.
+    if (mapInstanceRef.current) {
+      if (mapInstanceRef.current.getContainer() === mapRef.current) return;
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
+      markersRef.current = [];
+      pulseCirclesRef.current = [];
+      userLocationMarkerRef.current = null;
+    }
 
     // Use URL params for center/zoom, or default to Manila
-    const center = urlLat && urlLng
-      ? { lat: parseFloat(urlLat), lng: parseFloat(urlLng) }
+    const center: L.LatLngTuple = urlLat && urlLng
+      ? [parseFloat(urlLat), parseFloat(urlLng)]
       : userLocation
-        ? { lat: userLocation.lat, lng: userLocation.lng }
-        : { lat: 14.5995, lng: 121.0437 };
+        ? [userLocation.lat, userLocation.lng]
+        : [14.5995, 121.0437];
 
     const zoom = urlZoom ? parseInt(urlZoom) : (userLocation ? 13 : 12);
 
-    const map = new window.google.maps.Map(mapRef.current, {
+    const map = createMap(mapRef.current, {
       center,
       zoom,
-      mapTypeId: 'terrain',
-      styles: [
-        // Base land — natural green tint
-        { featureType: 'landscape.natural', elementType: 'geometry.fill', stylers: [{ color: '#dde8cd' }] },
-        { featureType: 'landscape.natural.terrain', elementType: 'geometry.fill', stylers: [{ color: '#c5d6a8' }] },
-        { featureType: 'landscape.natural.landcover', elementType: 'geometry.fill', stylers: [{ color: '#c8dba5' }] },
-        // Man-made landscape — soft warm gray
-        { featureType: 'landscape.man_made', elementType: 'geometry.fill', stylers: [{ color: '#e4e0d8' }] },
-        // Water — natural blue-green
-        { featureType: 'water', elementType: 'geometry.fill', stylers: [{ color: '#a3c8e9' }] },
-        { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#4a7fa5' }] },
-        { featureType: 'water', elementType: 'labels.text.stroke', stylers: [{ color: '#dceaf5' }, { weight: 2 }] },
-        // Parks & green areas — lush green
-        { featureType: 'poi.park', elementType: 'geometry.fill', stylers: [{ color: '#b5d48c' }] },
-        { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#4a7a2e' }] },
-        // Sports complexes — vibrant green highlight
-        { featureType: 'poi.sports_complex', elementType: 'geometry.fill', stylers: [{ color: '#a8cf6f' }] },
-        { featureType: 'poi.sports_complex', elementType: 'labels.text.fill', stylers: [{ color: '#3d6b1f' }] },
-        // Hide other POI labels for clean look
-        { featureType: 'poi', elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-        { featureType: 'poi.business', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-        { featureType: 'poi.medical', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-        { featureType: 'poi.school', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-        { featureType: 'poi.government', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-        // Roads — earthy tones
-        { featureType: 'road.highway', elementType: 'geometry.fill', stylers: [{ color: '#f0d9a8' }] },
-        { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#c9a96e' }, { weight: 0.8 }] },
-        { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#6b5a35' }] },
-        { featureType: 'road.arterial', elementType: 'geometry.fill', stylers: [{ color: '#f5edd5' }] },
-        { featureType: 'road.arterial', elementType: 'geometry.stroke', stylers: [{ color: '#d4c49e' }, { weight: 0.5 }] },
-        { featureType: 'road.local', elementType: 'geometry.fill', stylers: [{ color: '#f8f4ea' }] },
-        { featureType: 'road.local', elementType: 'geometry.stroke', stylers: [{ color: '#e0d8c4' }, { weight: 0.3 }] },
-        { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#5c5544' }] },
-        { featureType: 'road', elementType: 'labels.text.stroke', stylers: [{ color: '#f5f0e6' }, { weight: 3 }] },
-        // Transit — muted
-        { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#dbd4c4' }] },
-        { featureType: 'transit', elementType: 'labels', stylers: [{ visibility: 'simplified' }] },
-        // Administrative borders — earthy brown
-        { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#b5a88a' }, { weight: 1.2 }] },
-        { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#3a3528' }] },
-        { featureType: 'administrative.province', elementType: 'labels.text.fill', stylers: [{ color: '#6b6352' }] },
-        // General labels
-        { elementType: 'labels.text.fill', stylers: [{ color: '#4a4639' }] },
-        { elementType: 'labels.text.stroke', stylers: [{ color: '#f0ebe0' }, { weight: 2.5 }] },
-      ],
-      mapTypeControl: false,
-      fullscreenControl: false,
-      streetViewControl: false,
-      tilt: 0,
+      zoomControl: true,
+      tileStyle: 'street',
     });
 
-    googleMapRef.current = map;
+    mapInstanceRef.current = map;
     setIsMapLoaded(true);
+
+    // The marker effect only reruns on data changes, so draw them onto this map now
+    if (locations.length > 0) updateMarkers();
 
     // Auto-center on user location if GPS is enabled
     if (userLocation && gpsEnabled) {
       setTimeout(() => {
-        map.panTo({ lat: userLocation.lat, lng: userLocation.lng });
-        smoothZoom(14);
+        map.flyTo([userLocation.lat, userLocation.lng], 14, { duration: 0.7 });
       }, 500);
     }
   }, [isLoading]);
 
+  // Tear the map down when leaving the page
+  useEffect(() => () => {
+    mapInstanceRef.current?.remove();
+    mapInstanceRef.current = null;
+    markersRef.current = [];
+    pulseCirclesRef.current = [];
+    userLocationMarkerRef.current = null;
+  }, []);
+
   // Auto-center when user location arrives after map is already loaded
   useEffect(() => {
-    if (googleMapRef.current && userLocation && gpsEnabled && !urlLat) {
-      googleMapRef.current.panTo({ lat: userLocation.lat, lng: userLocation.lng });
-      smoothZoom(14);
+    if (mapInstanceRef.current && userLocation && gpsEnabled && !urlLat) {
+      flyToLatLng(userLocation.lat, userLocation.lng, 14);
     }
   }, [userLocation, gpsEnabled]);
 
   // Zoom to location and trigger pulse when arriving from homepage with locationId
   useEffect(() => {
-    if (activeLocationId && urlLat && urlLng && googleMapRef.current && !isLoading) {
+    if (activeLocationId && urlLat && urlLng && mapInstanceRef.current && !isLoading) {
       const lat = parseFloat(urlLat);
       const lng = parseFloat(urlLng);
       const zoom = urlZoom ? parseInt(urlZoom) : 15;
 
       // Pan to the location with smooth animation
-      googleMapRef.current.panTo({ lat, lng });
-      smoothZoom(zoom);
+      flyToLatLng(lat, lng, zoom);
 
       // Trigger pulse animation after a short delay
       setTimeout(() => {
@@ -1721,8 +1639,8 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
   useEffect(() => {
     if (showLocationMapView) {
       setTimeout(() => {
-        if (googleMapRef.current && window.google) {
-          window.google.maps.event.trigger(googleMapRef.current, 'resize');
+        if (mapInstanceRef.current) {
+          refreshMapSize(mapInstanceRef.current);
           centerSelectedLocationOnMap();
         }
       }, 150);
@@ -1732,28 +1650,28 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
   // Trigger map resize when viewMode changes (fixes blank map after toggling list/map on mobile)
   // Also trigger when returning to map from court detail / schedule panels
   useEffect(() => {
-    if (googleMapRef.current && window.google && viewMode === 'map') {
+    if (mapInstanceRef.current && viewMode === 'map') {
       setTimeout(() => {
-        window.google.maps.event.trigger(googleMapRef.current, 'resize');
+        refreshMapSize(mapInstanceRef.current);
       }, 100);
     }
   }, [viewMode]);
 
   useEffect(() => {
-    if (!heroActiveCourt && !selectedCourt && googleMapRef.current && window.google) {
+    if (!heroActiveCourt && !selectedCourt && mapInstanceRef.current) {
       setTimeout(() => {
-        window.google.maps.event.trigger(googleMapRef.current, 'resize');
+        refreshMapSize(mapInstanceRef.current);
       }, 350);
     }
   }, [heroActiveCourt, selectedCourt]);
 
   // Update markers whenever locations, courts, filters, or search change
   const updateMarkers = () => {
-    const map = googleMapRef.current;
-    if (!map || !window.google) return;
+    const map = mapInstanceRef.current;
+    if (!map) return;
 
     // Clear existing markers
-    markersRef.current.forEach(marker => marker.setMap(null));
+    markersRef.current.forEach(marker => marker.remove());
     markersRef.current = [];
 
     // Create markers for locations instead of individual courts (same as GuestBooking)
@@ -1769,17 +1687,12 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
         // Only show marker if location has courts matching the filter
         if (locCourts.length === 0) return;
 
-        const marker = new window.google.maps.Marker({
-          position: { lat: location.latitude, lng: location.longitude },
-          map,
+        const marker = L.marker([location.latitude, location.longitude], {
           title: location.name,
-          icon: {
-            url: '/images/PinMarker.png',
-            scaledSize: new window.google.maps.Size(42, 60),
-            anchor: new window.google.maps.Point(21, 60)
-          },
+          icon: createPinIcon(),
           opacity: 0,
-        });
+          riseOnHover: true,
+        }).addTo(map);
 
         // Smooth marker fade-in
         let markerOpacity = 0;
@@ -1792,8 +1705,7 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
 
         const locationImage = location.hero_image || location.image_url || '/images/home-images/pb2.jpg';
 
-        const infoWindow = new window.google.maps.InfoWindow({
-          content: `
+        marker.bindPopup(`
             <div style="width:220px;font-family:'Inter',system-ui,sans-serif;overflow:hidden;">
               <div style="height:130px;width:100%;overflow:hidden;background:#e2e8f0;">
                 <img 
@@ -1814,30 +1726,9 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
                 </div>
               </div>
             </div>
-          `,
-          disableAutoPan: true,
-          maxWidth: 240
-        });
+          `, POPUP_OPTIONS);
 
-        // Hide close button when InfoWindow opens
-        infoWindow.addListener('domready', () => {
-          const closeBtn = document.querySelector('.gm-ui-hover-effect') as HTMLElement;
-          if (closeBtn) closeBtn.style.display = 'none';
-          const iwOuter = document.querySelector('.gm-style-iw-c') as HTMLElement;
-          if (iwOuter) {
-            iwOuter.style.padding = '0';
-            iwOuter.style.borderRadius = '12px';
-            iwOuter.style.overflow = 'hidden';
-            iwOuter.style.boxShadow = '0 4px 20px rgba(0,0,0,0.15)';
-          }
-          const iwInner = document.querySelector('.gm-style-iw-d') as HTMLElement;
-          if (iwInner) {
-            iwInner.style.overflow = 'hidden';
-            iwInner.style.padding = '0';
-          }
-        });
-
-        marker.addListener('click', () => {
+        marker.on('click', () => {
                                                         setActiveLocationId(location.id);
                                                         setSelectedCourt(null);
                                                         setLocationSelectedSlots([]);
@@ -1849,13 +1740,13 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
         });
 
         // Show info window on hover
-        marker.addListener('mouseover', () => {
-          infoWindow.open(map, marker);
+        marker.on('mouseover', () => {
+          marker.openPopup();
         });
 
         // Hide info window when mouse leaves
-        marker.addListener('mouseout', () => {
-          infoWindow.close();
+        marker.on('mouseout', () => {
+          marker.closePopup();
         });
 
         markersRef.current.push(marker);
@@ -2276,96 +2167,71 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          if (!googleMapRef.current) return;
+          const map = mapInstanceRef.current;
+          if (!map) return;
 
-          const userLoc = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          };
+          const userLoc: L.LatLngTuple = [position.coords.latitude, position.coords.longitude];
 
           // Remove existing user location marker if any
           if (userLocationMarkerRef.current) {
-            userLocationMarkerRef.current.setMap(null);
+            userLocationMarkerRef.current.remove();
           }
 
           // Create a custom marker for user's location with a distinctive style
-          const userMarker = new window.google.maps.Marker({
-            position: userLoc,
-            map: googleMapRef.current,
+          const userMarker = L.marker(userLoc, {
             title: 'Your Location',
-            icon: {
-              path: window.google.maps.SymbolPath.CIRCLE,
-              scale: 14,
-              fillColor: '#3b82f6',
-              fillOpacity: 1,
-              strokeColor: '#ffffff',
-              strokeWeight: 4,
-            },
+            icon: createDotIcon({ size: 28, color: '#3b82f6', ringWidth: 4 }),
             opacity: 0,
-            zIndex: 999,
+            zIndexOffset: 1000,
           });
 
           // Add a pulsing outer circle effect
-          const pulseCircle = new window.google.maps.Marker({
-            position: userLoc,
-            map: googleMapRef.current,
-            icon: {
-              path: window.google.maps.SymbolPath.CIRCLE,
-              scale: 24,
-              fillColor: '#3b82f6',
-              fillOpacity: 0.3,
-              strokeColor: '#3b82f6',
-              strokeWeight: 2,
-              strokeOpacity: 0.5,
-            },
+          const pulseHalo = L.circleMarker(userLoc, {
+            radius: 24,
+            fillColor: '#3b82f6',
+            fillOpacity: 0,
+            color: '#3b82f6',
+            weight: 2,
             opacity: 0,
-            zIndex: 998,
+            interactive: false,
           });
+
+          // Keep both layers together so they can be removed in one call
+          const userLayer = L.layerGroup([pulseHalo, userMarker]).addTo(map);
 
           // Animate user markers fade-in
           let uOpac = 0;
           const animUserMarker = () => {
             uOpac += 0.05;
             userMarker.setOpacity(Math.min(uOpac, 1));
-            pulseCircle.setOpacity(Math.min(uOpac * 0.5, 0.5));
+            pulseHalo.setStyle({
+              opacity: Math.min(uOpac * 0.5, 0.5),
+              fillOpacity: Math.min(uOpac * 0.3, 0.3),
+            });
             if (uOpac < 1) requestAnimationFrame(animUserMarker);
           };
           animUserMarker();
 
-          // Create info window for user location
-          const infoWindow = new window.google.maps.InfoWindow({
-            content: `
+          // Info window for user location, opened immediately
+          userMarker.bindPopup(`
               <div style="padding: 8px; font-family: Inter, sans-serif; text-align: center;">
                 <p style="margin: 0; font-weight: 800; font-size: 14px; color: #3b82f6;">📍 You are here</p>
                 <p style="margin: 4px 0 0; font-weight: 500; font-size: 11px; color: #64748b;">Your current location</p>
               </div>
-            `,
-            disableAutoPan: false
-          });
+            `, { ...POPUP_OPTIONS, autoPan: true, minWidth: 0 }).openPopup();
 
-          // Open info window immediately
-          infoWindow.open(googleMapRef.current, userMarker);
-
-          // Store reference to remove later (store both markers)
-          userLocationMarkerRef.current = {
-            setMap: (map: any) => {
-              userMarker.setMap(map);
-              pulseCircle.setMap(map);
-            }
-          };
+          // Store reference to remove later (removes both layers)
+          userLocationMarkerRef.current = userLayer;
 
           // Pan to user location and set appropriate zoom
-          googleMapRef.current.panTo(userLoc);
-          smoothZoom(15);
+          flyToLatLng(userLoc[0], userLoc[1], 15);
         },
         (error) => {
           console.error('Error getting location:', error);
 
           setTimeout(() => {
-            if (googleMapRef.current) {
-              const philippinesCenter = { lat: 12.8797, lng: 121.774 };
-              googleMapRef.current.panTo(philippinesCenter);
-              googleMapRef.current.setZoom(6);
+            if (mapInstanceRef.current) {
+              mapInstanceRef.current.setView(PHILIPPINES_CENTER, 6);
             }
           }, 100);
         },
@@ -2373,10 +2239,8 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
       );
     } else {
       setTimeout(() => {
-        if (googleMapRef.current) {
-          const philippinesCenter = { lat: 12.8797, lng: 121.774 };
-          googleMapRef.current.panTo(philippinesCenter);
-          googleMapRef.current.setZoom(6);
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.setView(PHILIPPINES_CENTER, 6);
         }
       }, 100);
     }
@@ -2733,9 +2597,8 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
                           key={location.id}
                           onClick={() => {
                             setSearchQuery(location.name);
-                            if (googleMapRef.current && location.latitude && location.longitude) {
-                              googleMapRef.current.panTo({ lat: location.latitude, lng: location.longitude });
-                              smoothZoom(19);
+                            if (mapInstanceRef.current && location.latitude && location.longitude) {
+                              flyToLatLng(location.latitude, location.longitude, 18);
                               triggerPulse(location.latitude, location.longitude);
                             }
                                                     setActiveLocationId(location.id);
@@ -2896,14 +2759,13 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
                     setSearchQuery(e.target.value);
                     setShowDesktopSuggestions(true);
                     const val = e.target.value.trim();
-                    if (val.length >= 3 && googleMapRef.current && window.google) {
+                    if (val.length >= 3 && mapInstanceRef.current) {
                       const matchLoc = locations.find(l =>
                         l.name.toLowerCase().includes(val.toLowerCase()) ||
                         l.city.toLowerCase().includes(val.toLowerCase())
                       );
                       if (matchLoc && matchLoc.latitude && matchLoc.longitude) {
-                        googleMapRef.current.panTo({ lat: matchLoc.latitude, lng: matchLoc.longitude });
-                        smoothZoom(14);
+                        flyToLatLng(matchLoc.latitude, matchLoc.longitude, 14);
                       }
                     }
                   }}
@@ -2960,9 +2822,8 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
                               onClick={() => {
                                 setSearchQuery(location.name);
                                 setShowDesktopSuggestions(false);
-                                if (googleMapRef.current && location.latitude && location.longitude) {
-                                  googleMapRef.current.panTo({ lat: location.latitude, lng: location.longitude });
-                                  smoothZoom(19);
+                                if (mapInstanceRef.current && location.latitude && location.longitude) {
+                                  flyToLatLng(location.latitude, location.longitude, 18);
                                   triggerPulse(location.latitude, location.longitude);
                                 }
                                                                 setActiveLocationId(location.id);

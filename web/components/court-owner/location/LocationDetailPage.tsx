@@ -6,12 +6,7 @@ import { supabase } from '../../../services/supabase';
 import { uploadCourtImage } from '../../../services/locations';
 import { Location, CourtClosure, CourtClosureReason } from '../../../types';
 import ConfirmDialog from '../../ui/ConfirmDialog';
-
-declare global {
-    interface Window {
-        google: any;
-    }
-}
+import { createMap, createDotIcon, L } from '../../../services/leafletMap';
 
 type CourtStatus = 'Available' | 'Fully Booked' | 'Coming Soon' | 'Maintenance' | 'Setup Required';
 
@@ -1349,18 +1344,31 @@ const StatBox: React.FC<{ label: string; value: string; sub: string; color?: str
 
 const MiniMap: React.FC<{ lat: number; lng: number }> = ({ lat, lng }) => {
     const mapRef = React.useRef<HTMLDivElement>(null);
+    const mapInstance = React.useRef<L.Map | null>(null);
+    const markerRef = React.useRef<L.Marker | null>(null);
+
     useEffect(() => {
-        if (mapRef.current && window.google) {
-            const map = new window.google.maps.Map(mapRef.current, {
-                center: { lat, lng }, zoom: 15, disableDefaultUI: true, gestureHandling: 'none',
-                styles: [{ featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] }, { featureType: 'transit', stylers: [{ visibility: 'off' }] }]
+        if (!mapRef.current) return;
+        if (!mapInstance.current) {
+            mapInstance.current = createMap(mapRef.current, {
+                center: [lat, lng], zoom: 15, tileStyle: 'light', staticMap: true,
             });
-            new window.google.maps.Marker({
-                position: { lat, lng }, map,
-                icon: { path: window.google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#3b82f6', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 }
-            });
+            markerRef.current = L.marker([lat, lng], {
+                icon: createDotIcon({ size: 20, color: '#3b82f6' }),
+                interactive: false,
+            }).addTo(mapInstance.current);
+        } else {
+            mapInstance.current.setView([lat, lng], mapInstance.current.getZoom());
+            markerRef.current?.setLatLng([lat, lng]);
         }
     }, [lat, lng]);
+
+    useEffect(() => () => {
+        mapInstance.current?.remove();
+        mapInstance.current = null;
+        markerRef.current = null;
+    }, []);
+
     return <div ref={mapRef} className="w-full h-full" />;
 };
 

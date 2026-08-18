@@ -29,6 +29,8 @@ import {
 } from '../../services/courtOwnerVerification';
 import { checkImageBlur, type BlurCheckResult } from '../../services/imageValidation';
 import CameraCapture from '../ui/CameraCapture';
+import { reverseGeocode as reverseGeocodeCoords } from '../../services/geocoding';
+import { createMap, createDotIcon, MANILA, L } from '../../services/leafletMap';
 
 type ClassifyResult = null; // kept for compatibility if we re-introduce classifier later
 
@@ -186,65 +188,63 @@ const MapPicker: React.FC<{
   onAddressChange?: (addr: { street?: string; barangay?: string; city?: string; province?: string; zipCode?: string }) => void;
 }> = ({ coords, onCoordsChange, onAddressChange }) => {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstance = useRef<any>(null);
-  const markerRef = useRef<any>(null);
+  const mapInstance = useRef<L.Map | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
   const [isLocating, setIsLocating] = useState(false);
 
-  const reverseGeocode = useCallback((lat: number, lng: number) => {
-    if (!window.google?.maps || !onAddressChange) return;
-    const geocoder = new window.google.maps.Geocoder();
-    geocoder.geocode({ location: { lat, lng } }, (results: any, status: string) => {
-      if (status !== 'OK' || !results?.length) return;
-      const parsed = parseAddress(results[0].address_components || [], results[0].formatted_address);
-      const updates: { street?: string; barangay?: string; city?: string; province?: string; zipCode?: string } = {};
-      if (parsed.street) updates.street = parsed.street;
-      if (parsed.barangay) updates.barangay = parsed.barangay;
-      if (parsed.city) updates.city = parsed.city;
-      if (parsed.province) updates.province = parsed.province;
-      if (parsed.zipCode) updates.zipCode = parsed.zipCode;
-      if (Object.keys(updates).length) onAddressChange(updates);
-    });
+  const reverseGeocode = useCallback(async (lat: number, lng: number) => {
+    if (!onAddressChange) return;
+    const result = await reverseGeocodeCoords(lat, lng);
+    if (!result) return;
+    const parsed = parseAddress(result.address_components, result.formatted_address);
+    const updates: { street?: string; barangay?: string; city?: string; province?: string; zipCode?: string } = {};
+    if (parsed.street) updates.street = parsed.street;
+    if (parsed.barangay) updates.barangay = parsed.barangay;
+    if (parsed.city) updates.city = parsed.city;
+    if (parsed.province) updates.province = parsed.province;
+    if (parsed.zipCode) updates.zipCode = parsed.zipCode;
+    if (Object.keys(updates).length) onAddressChange(updates);
   }, [onAddressChange]);
 
   useEffect(() => {
-    if (!mapRef.current || !window.google?.maps) return;
+    if (!mapRef.current) return;
     if (!mapInstance.current) {
-      mapInstance.current = new window.google.maps.Map(mapRef.current, {
-        center: coords.lat && coords.lng ? { lat: coords.lat, lng: coords.lng } : { lat: 14.5995, lng: 120.9842 },
+      const hasCoords = !!(coords.lat && coords.lng);
+      mapInstance.current = createMap(mapRef.current, {
+        center: hasCoords ? [coords.lat!, coords.lng!] : MANILA,
         zoom: 15,
-        disableDefaultUI: true,
         zoomControl: true,
-        gestureHandling: 'greedy',
       });
-      markerRef.current = new window.google.maps.Marker({
-        map: mapInstance.current,
+      markerRef.current = L.marker(hasCoords ? [coords.lat!, coords.lng!] : MANILA, {
         draggable: true,
-        visible: !!(coords.lat && coords.lng),
-        position: coords.lat && coords.lng ? { lat: coords.lat, lng: coords.lng } : undefined,
-        icon: { path: window.google.maps.SymbolPath.CIRCLE, scale: 14, fillColor: '#2563eb', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 3 },
-      });
-      mapInstance.current.addListener('click', (e: any) => {
-        const lat = e.latLng.lat();
-        const lng = e.latLng.lng();
+        opacity: hasCoords ? 1 : 0,
+        icon: createDotIcon({ size: 28, color: '#2563eb' }),
+      }).addTo(mapInstance.current);
+      mapInstance.current.on('click', (e: L.LeafletMouseEvent) => {
+        const { lat, lng } = e.latlng;
         onCoordsChange({ lat, lng });
-        markerRef.current.setVisible(true);
-        markerRef.current.setPosition({ lat, lng });
+        markerRef.current?.setOpacity(1);
+        markerRef.current?.setLatLng([lat, lng]);
         reverseGeocode(lat, lng);
       });
-      markerRef.current.addListener('dragend', () => {
-        const pos = markerRef.current.getPosition();
-        const lat = pos.lat();
-        const lng = pos.lng();
-        onCoordsChange({ lat, lng });
-        reverseGeocode(lat, lng);
+      markerRef.current.on('dragend', () => {
+        const pos = markerRef.current!.getLatLng();
+        onCoordsChange({ lat: pos.lat, lng: pos.lng });
+        reverseGeocode(pos.lat, pos.lng);
       });
     } else if (coords.lat && coords.lng) {
-      mapInstance.current.panTo({ lat: coords.lat, lng: coords.lng });
-      markerRef.current.setVisible(true);
-      markerRef.current.setPosition({ lat: coords.lat, lng: coords.lng });
+      mapInstance.current.panTo([coords.lat, coords.lng]);
+      markerRef.current?.setOpacity(1);
+      markerRef.current?.setLatLng([coords.lat, coords.lng]);
       reverseGeocode(coords.lat, coords.lng);
     }
   }, [coords, onCoordsChange, reverseGeocode]);
+
+  useEffect(() => () => {
+    mapInstance.current?.remove();
+    mapInstance.current = null;
+    markerRef.current = null;
+  }, []);
 
   const handlePinToGPS = () => {
     if (!navigator.geolocation) { alert('Geolocation is not supported'); return; }
@@ -254,11 +254,9 @@ const MapPicker: React.FC<{
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         onCoordsChange({ lat, lng });
-        if (mapInstance.current) mapInstance.current.panTo({ lat, lng });
-        if (markerRef.current) {
-          markerRef.current.setVisible(true);
-          markerRef.current.setPosition({ lat, lng });
-        }
+        mapInstance.current?.panTo([lat, lng]);
+        markerRef.current?.setOpacity(1);
+        markerRef.current?.setLatLng([lat, lng]);
         reverseGeocode(lat, lng);
         setIsLocating(false);
       },
@@ -443,22 +441,18 @@ const CourtOwnerVerificationForm: React.FC<CourtOwnerVerificationFormProps> = ({
         try {
           const { latitude, longitude } = pos.coords;
           setCoords({ lat: latitude, lng: longitude });
-          // Try client-side reverse geocode via Maps JS API to auto-fill address
-          if (window.google?.maps) {
-            const geocoder = new window.google.maps.Geocoder();
-            geocoder.geocode({ location: { lat: latitude, lng: longitude } }, (results: any, status: string) => {
-              if (status === 'OK' && results?.length) {
-                const parsed = parseAddress(results[0].address_components || [], results[0].formatted_address);
-                setLocationForm((f) => ({
-                  ...f,
-                  street: parsed.street || f.street,
-                  barangay: parsed.barangay || f.barangay,
-                  city: parsed.city || f.city,
-                  province: parsed.province || f.province,
-                  zipCode: parsed.zipCode || f.zipCode,
-                }));
-              }
-            });
+          // Reverse geocode to auto-fill the address fields
+          const result = await reverseGeocodeCoords(latitude, longitude);
+          if (result) {
+            const parsed = parseAddress(result.address_components, result.formatted_address);
+            setLocationForm((f) => ({
+              ...f,
+              street: parsed.street || f.street,
+              barangay: parsed.barangay || f.barangay,
+              city: parsed.city || f.city,
+              province: parsed.province || f.province,
+              zipCode: parsed.zipCode || f.zipCode,
+            }));
           }
           setLocationToast('Location detected and filled');
           setTimeout(() => setLocationToast(''), 4000);

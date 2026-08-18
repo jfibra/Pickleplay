@@ -9,12 +9,8 @@ import { approveCourtManager, assignCourtManager, copyCourtManagerInviteLink, ge
 import type { ActiveCourtRole } from '../../../types/court-manager';
 import { getCourtManagerStatusClasses, getCourtManagerStatusLabel, getCourtOperationsRoute } from '../../../lib/court-manager/mapper';
 import ConfirmDialog from '../../ui/ConfirmDialog';
-
-declare global {
-    interface Window {
-        google: any;
-    }
-}
+import { geocodeToCoords, reverseGeocode as reverseGeocodeCoords, getComponent } from '../../../services/geocoding';
+import { createMap, createDotIcon, MANILA, L } from '../../../services/leafletMap';
 
 interface CourtItem {
     id: string;
@@ -189,19 +185,8 @@ const LocationsList: React.FC = () => {
     const scheduleRoute = getCourtOperationsRoute(activeRole, 'schedule');
 
     const geocodeAddress = async (address: string, city: string): Promise<{ lat: number; lng: number } | null> => {
-        if (!window.google || !address || !city) return null;
-        const geocoder = new window.google.maps.Geocoder();
-        const fullAddress = `${address}, ${city}, Philippines`;
-        return new Promise((resolve) => {
-            geocoder.geocode({ address: fullAddress }, (results: any, status: any) => {
-                if (status === 'OK' && results[0]) {
-                    const { lat, lng } = results[0].geometry.location;
-                    resolve({ lat: lat(), lng: lng() });
-                } else {
-                    resolve(null);
-                }
-            });
-        });
+        if (!address || !city) return null;
+        return geocodeToCoords(`${address}, ${city}, Philippines`);
     };
 
     // Debounced geocoding
@@ -3705,39 +3690,35 @@ const LocationCard: React.FC<{
 
 const MiniMapPreview: React.FC<{ lat: number; lng: number }> = ({ lat, lng }) => {
     const mapRef = React.useRef<HTMLDivElement>(null);
+    const mapInstance = React.useRef<L.Map | null>(null);
+    const markerRef = React.useRef<L.Marker | null>(null);
 
     useEffect(() => {
-        if (mapRef.current && window.google) {
-            const map = new window.google.maps.Map(mapRef.current, {
-                center: { lat, lng },
+        if (!mapRef.current) return;
+
+        if (!mapInstance.current) {
+            mapInstance.current = createMap(mapRef.current, {
+                center: [lat, lng],
                 zoom: 15,
-                disableDefaultUI: true,
-                gestureHandling: 'none',
-                zoomControl: false,
-                mapTypeControl: false,
-                streetViewControl: false,
-                fullscreenControl: false,
-                clickableIcons: false,
-                styles: [
-                    { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-                    { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-                ]
+                tileStyle: 'light',
+                staticMap: true,
             });
 
-            new window.google.maps.Marker({
-                position: { lat, lng },
-                map,
-                icon: {
-                    path: window.google.maps.SymbolPath.CIRCLE,
-                    scale: 10,
-                    fillColor: '#3b82f6',
-                    fillOpacity: 1,
-                    strokeColor: '#ffffff',
-                    strokeWeight: 3,
-                }
-            });
+            markerRef.current = L.marker([lat, lng], {
+                icon: createDotIcon({ size: 20, color: '#3b82f6' }),
+                interactive: false,
+            }).addTo(mapInstance.current);
+        } else {
+            mapInstance.current.setView([lat, lng], mapInstance.current.getZoom());
+            markerRef.current?.setLatLng([lat, lng]);
         }
     }, [lat, lng]);
+
+    useEffect(() => () => {
+        mapInstance.current?.remove();
+        mapInstance.current = null;
+        markerRef.current = null;
+    }, []);
 
     return <div ref={mapRef} className="w-full h-full" />;
 };
@@ -3749,66 +3730,34 @@ const MapPreview: React.FC<{
 }> = ({ coords, onCoordsChange, onAddressChange }) => {
     const [isLocating, setIsLocating] = React.useState(false);
     const mapRef = React.useRef<HTMLDivElement>(null);
-    const googleMapRef = React.useRef<any>(null);
-    const markerRef = React.useRef<any>(null);
+    const mapInstance = React.useRef<L.Map | null>(null);
+    const markerRef = React.useRef<L.Marker | null>(null);
 
-    const reverseGeocode = (lat: number, lng: number) => {
-        if (!window.google) return;
-        const geocoder = new window.google.maps.Geocoder();
-        geocoder.geocode({ location: { lat, lng } }, (results: any, status: any) => {
-            if (status === 'OK' && results && results.length > 0) {
-                // Collect data from ALL results for best coverage
-                let streetNum = '';
-                let route = '';
-                let city = '';
-                let region = '';
-                let barangay = '';
+    const reverseGeocode = async (lat: number, lng: number) => {
+        const result = await reverseGeocodeCoords(lat, lng);
+        if (!result) return;
 
-                for (const result of results) {
-                    for (const comp of result.address_components) {
-                        const types: string[] = comp.types;
-                        if (!streetNum && types.includes('street_number')) streetNum = comp.long_name;
-                        if (!route && types.includes('route')) route = comp.long_name;
-                        if (!city && (types.includes('locality') || types.includes('administrative_area_level_2'))) city = comp.long_name;
-                        if (!region && types.includes('administrative_area_level_1')) region = comp.long_name;
-                        // Barangay: Google Maps PH uses various type combos
-                        if (!barangay) {
-                            if (types.includes('sublocality_level_1')
-                                || types.includes('sublocality_level_2')
-                                || types.includes('neighborhood')
-                                || (types.includes('sublocality') && types.includes('political'))
-                                || (types.includes('administrative_area_level_5'))
-                                || (types.includes('administrative_area_level_4'))
-                            ) {
-                                barangay = comp.long_name;
-                            }
-                        }
-                    }
-                    // Stop early if we have everything
-                    if (streetNum && route && city && region && barangay) break;
-                }
+        const streetNum = getComponent(result, ['street_number']);
+        const route = getComponent(result, ['route']);
+        const city = getComponent(result, ['locality', 'administrative_area_level_2']);
+        const region = getComponent(result, ['administrative_area_level_1']);
+        // Barangay sits under one of several sublocality-style types
+        const barangay = getComponent(result, [
+            'sublocality_level_1',
+            'sublocality_level_2',
+            'sublocality',
+            'neighborhood',
+            'administrative_area_level_4',
+            'administrative_area_level_5',
+        ]);
 
-                // Also try: look for a result whose types include 'sublocality_level_1' directly
-                if (!barangay) {
-                    const brgyResult = results.find((r: any) =>
-                        r.types.includes('sublocality_level_1')
-                        || r.types.includes('neighborhood')
-                        || r.types.includes('administrative_area_level_5')
-                    );
-                    if (brgyResult) {
-                        barangay = brgyResult.address_components[0]?.long_name || '';
-                    }
-                }
-
-                const streetAddress = `${streetNum} ${route}`.trim();
-                if (onAddressChange) onAddressChange(
-                    streetAddress || results[0].formatted_address.split(',')[0],
-                    city,
-                    region,
-                    barangay
-                );
-            }
-        });
+        const streetAddress = `${streetNum} ${route}`.trim();
+        if (onAddressChange) onAddressChange(
+            streetAddress || result.formatted_address.split(',')[0],
+            city,
+            region,
+            barangay
+        );
     };
 
     const handlePinToGPS = () => {
@@ -3827,44 +3776,45 @@ const MapPreview: React.FC<{
     };
 
     useEffect(() => {
-        if (mapRef.current && window.google) {
-            if (!googleMapRef.current) {
-                googleMapRef.current = new window.google.maps.Map(mapRef.current, {
-                    center: coords || { lat: 14.5995, lng: 120.9842 },
-                    zoom: 15,
-                    disableDefaultUI: true,
-                    zoomControl: true,
-                    gestureHandling: 'greedy',
-                    styles: [{ featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] }]
-                });
-                googleMapRef.current.addListener('click', (e: any) => {
-                    const lat = e.latLng.lat();
-                    const lng = e.latLng.lng();
-                    if (onCoordsChange) onCoordsChange({ lat, lng });
-                    reverseGeocode(lat, lng);
-                });
-                markerRef.current = new window.google.maps.Marker({
-                    position: coords,
-                    map: googleMapRef.current,
-                    draggable: true,
-                    icon: { path: window.google.maps.SymbolPath.CIRCLE, scale: 14, fillColor: '#3b82f6', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 }
-                });
-                markerRef.current.addListener('dragend', () => {
-                    const p = markerRef.current.getPosition();
-                    if (onCoordsChange) onCoordsChange({ lat: p.lat(), lng: p.lng() });
-                    reverseGeocode(p.lat(), p.lng());
-                });
-            } else if (coords) {
-                const mp = markerRef.current.getPosition();
-                const dist = mp ? (Math.abs(mp.lat() - coords.lat) + Math.abs(mp.lng() - coords.lng)) : 1;
-                if (dist > 0.0001) {
-                    googleMapRef.current.panTo(coords);
-                    markerRef.current.setPosition(coords);
-                    markerRef.current.setVisible(true);
-                }
+        if (!mapRef.current) return;
+
+        if (!mapInstance.current) {
+            mapInstance.current = createMap(mapRef.current, {
+                center: coords ? [coords.lat, coords.lng] : MANILA,
+                zoom: 15,
+                zoomControl: true,
+            });
+            mapInstance.current.on('click', (e: L.LeafletMouseEvent) => {
+                const { lat, lng } = e.latlng;
+                if (onCoordsChange) onCoordsChange({ lat, lng });
+                reverseGeocode(lat, lng);
+            });
+            markerRef.current = L.marker(coords ? [coords.lat, coords.lng] : MANILA, {
+                draggable: true,
+                opacity: coords ? 1 : 0,
+                icon: createDotIcon({ size: 28, color: '#3b82f6' }),
+            }).addTo(mapInstance.current);
+            markerRef.current.on('dragend', () => {
+                const p = markerRef.current!.getLatLng();
+                if (onCoordsChange) onCoordsChange({ lat: p.lat, lng: p.lng });
+                reverseGeocode(p.lat, p.lng);
+            });
+        } else if (coords) {
+            const mp = markerRef.current?.getLatLng();
+            const dist = mp ? (Math.abs(mp.lat - coords.lat) + Math.abs(mp.lng - coords.lng)) : 1;
+            if (dist > 0.0001) {
+                mapInstance.current.panTo([coords.lat, coords.lng]);
+                markerRef.current?.setLatLng([coords.lat, coords.lng]);
+                markerRef.current?.setOpacity(1);
             }
         }
     }, [coords]);
+
+    useEffect(() => () => {
+        mapInstance.current?.remove();
+        mapInstance.current = null;
+        markerRef.current = null;
+    }, []);
 
     return (
         <div className="w-full h-full relative">
