@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Search, Filter, Download, MoreHorizontal, CheckCircle, XCircle, Clock, MapPin, User, Phone, X, QrCode, Play, ChevronLeft, ChevronRight, Trash2, RefreshCw, AlertTriangle, PhilippinePeso, Ban, Eye, ChevronDown, Banknote, LogIn, LogOut, UserX, Timer, Mail, Users, UserPlus, Building2, Loader2 } from 'lucide-react';
+import { Calendar, Check, Search, Filter, Download, MoreHorizontal, CheckCircle, XCircle, Clock, MapPin, User, Phone, X, QrCode, Play, ChevronLeft, ChevronRight, Trash2, RefreshCw, AlertTriangle, PhilippinePeso, Ban, Eye, ChevronDown, Banknote, LogIn, LogOut, UserX, Timer, Mail, Users, UserPlus, Building2, Loader2 } from 'lucide-react';
 import { supabase } from '../../services/supabase';
 import { isTimeSlotBlocked } from '../../services/courtEvents';
 import { autoCancelLateBookings } from '../../services/bookings';
@@ -170,7 +170,7 @@ const BookingsAdmin: React.FC = () => {
     const [mbLocationId, setMbLocationId] = useState('');
     const [mbCourtId, setMbCourtId] = useState('');
     const [mbDate, setMbDate] = useState(new Date().toISOString().split('T')[0]);
-    const [mbSelectedSlot, setMbSelectedSlot] = useState('');
+    const [mbSelectedSlots, setMbSelectedSlots] = useState<string[]>([]);
     const [mbExistingBookings, setMbExistingBookings] = useState<any[]>([]);
     const [mbPrice, setMbPrice] = useState(0);
     const [mbUserType, setMbUserType] = useState<'player' | 'guest'>('player');
@@ -223,8 +223,6 @@ const BookingsAdmin: React.FC = () => {
                         *,
                         profiles (full_name, email, avatar_url, username),
                         courts!inner (name, owner_id, location_id, locations(name)),
-                        payment_id,
-                        payment:payments!bookings_payment_id_fkey(id, total_amount, status, payment_status, payment_method, payment_date),
                         booking_payments (id, status, payment_type, proof_image_url, reference_number, account_name, created_at)
                     `)
                     .eq('courts.owner_id', user.id)
@@ -236,10 +234,10 @@ const BookingsAdmin: React.FC = () => {
                     .eq('is_active', true)
             ]);
 
-            if (courtsResponse.error) throw courtsResponse.error;
-            if (locationsResponse.error) throw locationsResponse.error;
-            if (bookingsResponse.error) throw bookingsResponse.error;
-            if (courtOperationHoursResponse.error) throw courtOperationHoursResponse.error;
+            if (courtsResponse.error) console.error("Error fetching courts:", courtsResponse.error);
+            if (locationsResponse.error) console.error("Error fetching locations:", locationsResponse.error);
+            if (bookingsResponse.error) console.error("Error fetching bookings:", bookingsResponse.error);
+            if (courtOperationHoursResponse.error) console.error("Error fetching court operation hours:", courtOperationHoursResponse.error);
 
             setMyCourts(courtsResponse.data || []);
             setMyLocations(locationsResponse.data || []);
@@ -487,11 +485,38 @@ const BookingsAdmin: React.FC = () => {
         });
     };
 
+    const formatSlotTime = (hhmm: string) => {
+        const hr = Number(String(hhmm).split(':')[0]);
+        const ap = hr >= 12 ? 'PM' : 'AM';
+        return `${hr % 12 || 12}:00 ${ap}`;
+    };
+
+    // Group the selected slots into contiguous runs — each run becomes one reservation.
+    const mbSlotRuns = (() => {
+        const chosen = MB_TIME_SLOTS
+            .filter((slot) => mbSelectedSlots.includes(slot.value))
+            .sort((a, b) => a.start.localeCompare(b.start));
+
+        const runs: { start: string; end: string; slots: number }[] = [];
+        chosen.forEach((slot) => {
+            const last = runs[runs.length - 1];
+            if (last && last.end === slot.start) {
+                last.end = slot.end;
+                last.slots += 1;
+            } else {
+                runs.push({ start: slot.start, end: slot.end, slots: 1 });
+            }
+        });
+        return runs;
+    })();
+
+    const mbTotalPrice = mbPrice * mbSelectedSlots.length;
+
     const resetManualBookingForm = () => {
         setMbLocationId('');
         setMbCourtId('');
         setMbDate(new Date().toISOString().split('T')[0]);
-        setMbSelectedSlot('');
+        setMbSelectedSlots([]);
         setMbExistingBookings([]);
         setMbPrice(0);
         setMbUserType('player');
@@ -524,21 +549,26 @@ const BookingsAdmin: React.FC = () => {
                 return;
             }
 
-            // 0. Parse selected slot
-            const [slotStart, slotEnd] = mbSelectedSlot.split('-');
-            const startDateTime = new Date(`${mbDate}T${slotStart}:00`);
-            const endDateTime = new Date(`${mbDate}T${slotEnd}:00`);
-
-            const isBlocked = await isTimeSlotBlocked(
-                mbCourtId,
-                startDateTime.toISOString(),
-                endDateTime.toISOString()
-            );
-
-            if (isBlocked) {
-                alert('🚫 Cannot create booking. You have a court event scheduled during this time.');
+            // 0. Each contiguous run of selected slots becomes its own reservation
+            const runs = mbSlotRuns;
+            if (runs.length === 0) {
+                alert('Please select at least one time slot.');
                 setIsSubmitting(false);
                 return;
+            }
+
+            for (const run of runs) {
+                const isBlocked = await isTimeSlotBlocked(
+                    mbCourtId,
+                    new Date(`${mbDate}T${run.start}:00`).toISOString(),
+                    new Date(`${mbDate}T${run.end}:00`).toISOString()
+                );
+
+                if (isBlocked) {
+                    alert(`🚫 Cannot create booking. You have a court event scheduled during ${formatSlotTime(run.start)} - ${formatSlotTime(run.end)}.`);
+                    setIsSubmitting(false);
+                    return;
+                }
             }
 
             // 1. Determine player
@@ -555,79 +585,95 @@ const BookingsAdmin: React.FC = () => {
                 }
                 player_id = mbSelectedPlayer.id;
             } else {
-                // Guest — first check if email already has an account in profiles
+                // Guest — name is required, email is optional
                 guestName = `${mbGuestFirstName.trim()} ${mbGuestLastName.trim()}`;
                 guestEmail = mbGuestEmail.trim();
-                if (!guestName.trim() || !guestEmail) {
-                    alert('Please fill in all guest fields.');
+                if (!guestName.trim()) {
+                    alert('Please enter the guest first and last name.');
                     setIsSubmitting(false);
                     return;
                 }
                 isGuestBooking = true;
-                const { data: existingProfile } = await supabase
-                    .from('profiles')
-                    .select('id')
-                    .eq('email', guestEmail)
-                    .maybeSingle();
-                if (existingProfile) {
-                    player_id = existingProfile.id;
+                // Email is optional — only link an existing account when one was given
+                if (guestEmail) {
+                    const { data: existingProfile } = await supabase
+                        .from('profiles')
+                        .select('id')
+                        .eq('email', guestEmail)
+                        .maybeSingle();
+                    if (existingProfile) {
+                        player_id = existingProfile.id;
+                    }
                 }
             }
 
-            // 2. Build booking record
-            const bookingRecord: any = {
-                court_id: mbCourtId,
-                player_id: player_id || currentUser.id, // Fallback to owner if guest has no profile
-                date: mbDate,
-                start_time: slotStart,
-                end_time: slotEnd,
-                total_price: mbPrice,
-                status: 'confirmed',
-                payment_status: 'unpaid',
-                booked_by: currentUser.id,
-                is_guest: isGuestBooking,
-            };
+            // 2. Build one booking record per run
+            const bookingRecords = runs.map((run) => {
+                const bookingRecord: any = {
+                    court_id: mbCourtId,
+                    player_id: player_id || currentUser.id, // Fallback to owner if guest has no profile
+                    date: mbDate,
+                    start_time: run.start,
+                    end_time: run.end,
+                    total_price: mbPrice * run.slots,
+                    status: 'confirmed',
+                    payment_status: 'unpaid',
+                    booked_by: currentUser.id,
+                    is_guest: isGuestBooking,
+                };
 
-            // Add guest info if guest booking
-            if (isGuestBooking && !player_id) { // Only if it's a guest booking AND no existing profile was found
-                bookingRecord.guest_name = guestName;
-                bookingRecord.guest_email = guestEmail;
-            }
+                // Add guest info if guest booking AND no existing profile was found
+                if (isGuestBooking && !player_id) {
+                    bookingRecord.guest_name = guestName;
+                    if (guestEmail) bookingRecord.guest_email = guestEmail;
+                }
 
-            // 3. Insert booking
-            const { data: bookingData, error } = await supabase
+                return bookingRecord;
+            });
+
+            // 3. Insert bookings
+            const { data: insertedBookings, error } = await supabase
                 .from('bookings')
-                .insert(bookingRecord)
+                .insert(bookingRecords)
                 .select(`
                     *,
                     profiles (full_name, email, avatar_url, username),
                     courts (name, locations(name))
-                `)
-                .single();
+                `);
 
             if (error) throw error;
+            if (!insertedBookings || insertedBookings.length === 0) throw new Error('Booking was not created.');
 
-            // 4. For guest bookings: Send booking receipt email with "Setup Your Account" link
+            const createdBookings = [...insertedBookings].sort((a: any, b: any) =>
+                String(a.start_time).localeCompare(String(b.start_time))
+            );
+            const firstBooking = createdBookings[0];
+            const lastBooking = createdBookings[createdBookings.length - 1];
+            const combinedTotal = createdBookings.reduce((sum: number, b: any) => sum + Number(b.total_price || 0), 0);
+
+            // 4. For guest bookings: Send a booking receipt email per reservation with "Setup Your Account" link
             if (isGuestBooking && guestEmail) {
                 setMbSendingEmail(true);
                 const selectedCourt = myCourts.find((c: any) => c.id === mbCourtId);
                 const selectedLoc = myLocations.find((l: any) => l.id === mbLocationId);
-                try {
-                    await sendGuestBookingEmail({
-                        guestEmail,
-                        guestName,
-                        referenceId: bookingData?.id || '',
-                        locationName: selectedLoc?.name || 'PicklePlay Court',
-                        locationAddress: selectedLoc?.address || selectedLoc?.city || '',
-                        courtName: selectedCourt?.name || 'Court',
-                        date: mbDate,
-                        startTime: slotStart,
-                        endTime: slotEnd,
-                        totalPrice: mbPrice
-                    });
-                    console.log(`✅ Guest booking email sent to ${guestEmail}`);
-                } catch (emailErr) {
-                    console.error('Failed to send guest email:', emailErr);
+                for (const booking of createdBookings) {
+                    try {
+                        await sendGuestBookingEmail({
+                            guestEmail,
+                            guestName,
+                            referenceId: booking.id || '',
+                            locationName: selectedLoc?.name || 'PicklePlay Court',
+                            locationAddress: selectedLoc?.address || selectedLoc?.city || '',
+                            courtName: selectedCourt?.name || 'Court',
+                            date: mbDate,
+                            startTime: String(booking.start_time).slice(0, 5),
+                            endTime: String(booking.end_time).slice(0, 5),
+                            totalPrice: Number(booking.total_price || 0)
+                        });
+                        console.log(`✅ Guest booking email sent to ${guestEmail}`);
+                    } catch (emailErr) {
+                        console.error('Failed to send guest email:', emailErr);
+                    }
                 }
                 setMbSendingEmail(false);
             }
@@ -635,23 +681,31 @@ const BookingsAdmin: React.FC = () => {
             // Transition to payment step instead of closing
             // For manual booking we want to pass player email, name, etc. to next step
             let playerEmail = '';
-            if (!bookingData.is_guest && bookingData.profiles && bookingData.profiles.email) {
-                playerEmail = bookingData.profiles.email;
+            if (!firstBooking.is_guest && firstBooking.profiles && firstBooking.profiles.email) {
+                playerEmail = firstBooking.profiles.email;
             }
 
             setMbCreatedBooking({
-                id: bookingData.id,
-                isGuest: bookingData.is_guest,
-                guestName: bookingData.is_guest ? bookingData.guest_name : (bookingData.profiles?.full_name || bookingData.profiles?.username || 'Player'),
-                guestEmail: bookingData.is_guest ? bookingData.guest_email : playerEmail,
+                id: firstBooking.id,
+                ids: createdBookings.map((b: any) => b.id),
+                isGuest: firstBooking.is_guest,
+                guestName: firstBooking.is_guest ? firstBooking.guest_name : (firstBooking.profiles?.full_name || firstBooking.profiles?.username || 'Player'),
+                guestEmail: firstBooking.is_guest ? firstBooking.guest_email : playerEmail,
                 playerEmail: playerEmail, // Store player email separately for receipt
-                courtName: bookingData.courts?.name,
-                locationName: bookingData.courts?.locations?.name || '',
-                date: bookingData.date,
-                startTime: bookingData.start_time.slice(0, 5),
-                endTime: bookingData.end_time.slice(0, 5),
-                totalPrice: bookingData.total_price,
-                avatarUrl: bookingData.profiles?.avatar_url,
+                courtName: firstBooking.courts?.name,
+                locationName: firstBooking.courts?.locations?.name || '',
+                date: firstBooking.date,
+                startTime: String(firstBooking.start_time).slice(0, 5),
+                endTime: String(lastBooking.end_time).slice(0, 5),
+                slotCount: mbSelectedSlots.length,
+                bookings: createdBookings.map((b: any) => ({
+                    id: b.id,
+                    startTime: String(b.start_time).slice(0, 5),
+                    endTime: String(b.end_time).slice(0, 5),
+                    totalPrice: Number(b.total_price || 0),
+                })),
+                totalPrice: combinedTotal,
+                avatarUrl: firstBooking.profiles?.avatar_url,
             });
             setMbPaymentStep(true);
             setMbCashReceived('');
@@ -1110,6 +1164,27 @@ const BookingsAdmin: React.FC = () => {
                                 <span className={`px-3 py-1.5 rounded-xl border ${courtFilter ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
                                     {courtFilter ? selectedCourtName : 'Schedules'}
                                 </span>
+                            </div>
+                            <div className="mt-4 flex flex-wrap items-center gap-3">
+                                <button
+                                    onClick={() => setIsModalOpen(true)}
+                                    className="flex items-center gap-2 px-6 py-3.5 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-200 active:scale-95"
+                                >
+                                    <UserPlus size={16} /> New Booking
+                                </button>
+                                <button
+                                    onClick={() => setShowScanner(true)}
+                                    className="flex items-center gap-2 px-6 py-3.5 bg-white border border-slate-200 rounded-2xl text-slate-600 font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 hover:border-blue-300 hover:text-blue-700 transition-all active:scale-95"
+                                >
+                                    <QrCode size={16} /> Scan QR Code
+                                </button>
+                                <button
+                                    onClick={handleExportCSV}
+                                    disabled={bookings.length === 0}
+                                    className="flex items-center gap-2 px-6 py-3.5 bg-white border border-slate-200 rounded-2xl text-slate-600 font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 hover:border-blue-300 hover:text-blue-700 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:border-slate-200 disabled:hover:text-slate-600"
+                                >
+                                    <Download size={16} /> Export Data
+                                </button>
                             </div>
                         </div>
 
@@ -2063,8 +2138,8 @@ const BookingsAdmin: React.FC = () => {
 
                 {/* Action Confirmation Modal */}
                 {confirmModal && ReactDOM.createPortal(
-                    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[260] flex items-center justify-center p-6 animate-in fade-in duration-300">
-                        <div className="bg-white w-full max-w-md rounded-[40px] p-10 shadow-2xl animate-in zoom-in-95 duration-300">
+                    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[260] flex items-center justify-center p-6 animate-in fade-in duration-300" onClick={() => setConfirmModal(null)}>
+                        <div className="bg-white w-full max-w-md rounded-[40px] p-10 shadow-2xl animate-in zoom-in-95 duration-300" onClick={(e) => e.stopPropagation()}>
                             <div className="text-center mb-8">
                                 <div className={`w-16 h-16 rounded-full mx-auto mb-5 flex items-center justify-center ${
                                     confirmModal.type === 'verify' ? 'bg-emerald-50' :
@@ -2159,8 +2234,8 @@ const BookingsAdmin: React.FC = () => {
 
                 {/* New Booking Modal */}
                 {isModalOpen && ReactDOM.createPortal(
-                    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[200] flex items-center justify-center p-6 animate-in fade-in duration-300">
-                        <div className="bg-white w-full max-w-2xl rounded-[40px] shadow-2xl animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto relative overflow-x-hidden">
+                    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[200] flex items-center justify-center p-6 animate-in fade-in duration-300" onClick={() => { setIsModalOpen(false); resetManualBookingForm(); }}>
+                        <div className="bg-white w-full max-w-2xl rounded-[40px] shadow-2xl animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto relative overflow-x-hidden" onClick={(e) => e.stopPropagation()}>
                             {/* Confetti Animation */}
                             {mbShowConfetti && (
                                 <div className="absolute inset-0 pointer-events-none z-50 overflow-hidden">
@@ -2251,7 +2326,7 @@ const BookingsAdmin: React.FC = () => {
                                         </div>
                                         <div className="flex justify-between items-center">
                                             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Time</span>
-                                            <span className="text-sm font-black text-slate-900">{mbCreatedBooking.startTime} – {mbCreatedBooking.endTime}</span>
+                                            <span className="text-sm font-black text-slate-900">{mbCreatedBooking.startTime} – {mbCreatedBooking.endTime}{mbCreatedBooking.slotCount > 1 ? ` · ${mbCreatedBooking.slotCount} hrs` : ""}</span>
                                         </div>
                                         <div className="border-t border-slate-200 pt-3 flex justify-between items-center">
                                             <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Amount Paid</span>
@@ -2284,7 +2359,7 @@ const BookingsAdmin: React.FC = () => {
                                                     <p className="font-black text-slate-900 tracking-tight uppercase">{mbCreatedBooking.guestName}</p>
                                                     {mbCreatedBooking.isGuest && <span className="text-[8px] font-black bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full uppercase tracking-widest">Guest</span>}
                                                 </div>
-                                                <p className="text-[10px] font-bold text-slate-400">{mbCreatedBooking.guestEmail}</p>
+                                                <p className="text-[10px] font-bold text-slate-400">{mbCreatedBooking.guestEmail || 'No email provided'}</p>
                                             </div>
                                         </div>
                                     </div>
@@ -2302,6 +2377,7 @@ const BookingsAdmin: React.FC = () => {
                                         <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
                                             <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Time</p>
                                             <p className="text-xs font-black text-slate-900 mt-1">{mbCreatedBooking.startTime} – {mbCreatedBooking.endTime}</p>
+                                            {mbCreatedBooking.slotCount > 1 && <p className="text-[9px] font-bold text-slate-400 mt-0.5">{mbCreatedBooking.slotCount} hrs{mbCreatedBooking.bookings?.length > 1 ? ` · ${mbCreatedBooking.bookings.length} bookings` : ""}</p>}
                                         </div>
                                     </div>
 
@@ -2386,35 +2462,40 @@ const BookingsAdmin: React.FC = () => {
                                                         fullUpdates.is_checked_in = true;
                                                         fullUpdates.checked_in_at = now;
                                                     }
-                                                    let { error } = await supabase.from('bookings').update(fullUpdates).eq('id', mbCreatedBooking.id);
+                                                    let { error } = await supabase.from('bookings').update(fullUpdates).in('id', mbCreatedBooking.ids || [mbCreatedBooking.id]);
                                                     if (error) {
-                                                        const { error: fallbackErr } = await supabase.from('bookings').update({ status: 'confirmed', payment_status: 'paid' }).eq('id', mbCreatedBooking.id);
+                                                        const { error: fallbackErr } = await supabase.from('bookings').update({ status: 'confirmed', payment_status: 'paid' }).in('id', mbCreatedBooking.ids || [mbCreatedBooking.id]);
                                                         if (fallbackErr) throw fallbackErr;
                                                     }
                                                     // Show confetti
                                                     setMbShowConfetti(true);
                                                     fetchBookings();
 
-                                                    // Send payment receipt email
+                                                    // Send a payment receipt email per reservation
                                                     if (mbCreatedBooking.guestEmail || mbCreatedBooking.playerEmail) {
                                                         const pEmail = mbCreatedBooking.isGuest ? mbCreatedBooking.guestEmail : mbCreatedBooking.playerEmail;
                                                         console.log('DEBUG: Manual booking payment verified. Email:', pEmail);
                                                         if (pEmail) {
-                                                            sendPaymentReceiptEmail({
-                                                                email: pEmail,
-                                                                playerName: mbCreatedBooking.guestName || 'Player',
-                                                                courtName: mbCreatedBooking.courtName || 'Court',
-                                                                locationName: mbCreatedBooking.locationName || '',
-                                                                date: mbCreatedBooking.date,
-                                                                startTime: mbCreatedBooking.startTime,
-                                                                endTime: mbCreatedBooking.endTime,
-                                                                totalPrice: mbCreatedBooking.totalPrice,
-                                                                referenceId: mbCreatedBooking.id,
-                                                                paymentMethod: 'cash'
-                                                            }).then(res => {
-                                                                if (res.success) console.log('DEBUG: Manual receipt email success');
-                                                                else console.error('DEBUG: Manual receipt email failure:', res.error);
-                                                            }).catch(err => console.error('DEBUG: Manual receipt email error:', err));
+                                                            const receiptBookings = mbCreatedBooking.bookings?.length
+                                                                ? mbCreatedBooking.bookings
+                                                                : [{ id: mbCreatedBooking.id, startTime: mbCreatedBooking.startTime, endTime: mbCreatedBooking.endTime, totalPrice: mbCreatedBooking.totalPrice }];
+                                                            receiptBookings.forEach((rb: any) => {
+                                                                sendPaymentReceiptEmail({
+                                                                    email: pEmail,
+                                                                    playerName: mbCreatedBooking.guestName || 'Player',
+                                                                    courtName: mbCreatedBooking.courtName || 'Court',
+                                                                    locationName: mbCreatedBooking.locationName || '',
+                                                                    date: mbCreatedBooking.date,
+                                                                    startTime: rb.startTime,
+                                                                    endTime: rb.endTime,
+                                                                    totalPrice: rb.totalPrice,
+                                                                    referenceId: rb.id,
+                                                                    paymentMethod: 'cash'
+                                                                }).then(res => {
+                                                                    if (res.success) console.log('DEBUG: Manual receipt email success');
+                                                                    else console.error('DEBUG: Manual receipt email failure:', res.error);
+                                                                }).catch(err => console.error('DEBUG: Manual receipt email error:', err));
+                                                            });
                                                         }
                                                     } else {
                                                         console.warn('DEBUG: No email found for manual booking receipt');
@@ -2501,7 +2582,7 @@ const BookingsAdmin: React.FC = () => {
                                         type="date"
                                         required
                                         value={mbDate}
-                                        onChange={(e) => { setMbDate(e.target.value); setMbSelectedSlot(''); }}
+                                        onChange={(e) => { setMbDate(e.target.value); setMbSelectedSlots([]); }}
                                         className="w-full px-4 py-3.5 bg-slate-50 border border-transparent rounded-2xl focus:bg-white focus:border-blue-200 outline-none transition-all font-medium text-sm"
                                     />
                                 </div>
@@ -2509,17 +2590,32 @@ const BookingsAdmin: React.FC = () => {
                                 {/* Time Slots */}
                                 {mbCourtId && mbDate && (
                                     <div>
-                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 mb-2 block">Select Time Slot</label>
+                                        <div className="flex items-end justify-between gap-3 mb-2">
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 block">Select Time Slots</label>
+                                            {mbSelectedSlots.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setMbSelectedSlots([])}
+                                                    className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-rose-600 transition-colors"
+                                                >
+                                                    Clear
+                                                </button>
+                                            )}
+                                        </div>
                                         <div className="grid grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1 custom-scrollbar">
                                             {MB_TIME_SLOTS.map((slot) => {
                                                 const booked = isSlotBooked(slot.start, slot.end);
-                                                const selected = mbSelectedSlot === slot.value;
+                                                const selected = mbSelectedSlots.includes(slot.value);
                                                 return (
                                                     <button
                                                         key={slot.value}
                                                         type="button"
                                                         disabled={booked}
-                                                        onClick={() => setMbSelectedSlot(selected ? '' : slot.value)}
+                                                        onClick={() => setMbSelectedSlots((prev) => (
+                                                            prev.includes(slot.value)
+                                                                ? prev.filter((value) => value !== slot.value)
+                                                                : [...prev, slot.value]
+                                                        ))}
                                                         className={`flex items-center justify-center gap-2 px-3 py-3 rounded-2xl text-xs font-bold transition-all border-2 ${
                                                             booked
                                                                 ? 'bg-red-50 border-red-200 text-red-300 cursor-not-allowed line-through'
@@ -2528,14 +2624,43 @@ const BookingsAdmin: React.FC = () => {
                                                                     : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-blue-300 hover:bg-blue-50'
                                                         }`}
                                                     >
-                                                        <Clock size={13} className={booked ? 'text-red-300' : selected ? 'text-white' : 'text-slate-400'} />
+                                                        {selected
+                                                            ? <Check size={13} className="text-white" />
+                                                            : <Clock size={13} className={booked ? 'text-red-300' : 'text-slate-400'} />}
                                                         {slot.label}
                                                         {booked && <span className="text-[9px] font-black uppercase">Booked</span>}
                                                     </button>
                                                 );
                                             })}
                                         </div>
-                                        {!mbSelectedSlot && <p className="text-[10px] font-bold text-slate-400 mt-2 ml-1">Tap a slot to select it</p>}
+                                        {mbSelectedSlots.length === 0 ? (
+                                            <p className="text-[10px] font-bold text-slate-400 mt-2 ml-1">Tap slots to select them — pick several to book multiple hours</p>
+                                        ) : (
+                                            <div className="mt-3 rounded-2xl bg-blue-50 border border-blue-100 p-3 space-y-2">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">
+                                                        {mbSelectedSlots.length} {mbSelectedSlots.length === 1 ? 'Hour' : 'Hours'} Selected
+                                                        {mbSlotRuns.length > 1 && ` · ${mbSlotRuns.length} Reservations`}
+                                                    </p>
+                                                    <p className="text-sm font-black text-blue-900">₱{mbTotalPrice.toFixed(2)}</p>
+                                                </div>
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {mbSlotRuns.map((run) => (
+                                                        <span
+                                                            key={`${run.start}-${run.end}`}
+                                                            className="px-2 py-1 rounded-lg bg-white border border-blue-200 text-[10px] font-bold text-blue-900"
+                                                        >
+                                                            {formatSlotTime(run.start)} – {formatSlotTime(run.end)}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                                {mbSlotRuns.length > 1 && (
+                                                    <p className="text-[10px] font-bold text-blue-500 leading-relaxed">
+                                                        Your slots are not back-to-back, so they will be saved as {mbSlotRuns.length} separate reservations.
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
@@ -2635,9 +2760,13 @@ const BookingsAdmin: React.FC = () => {
                                 {/* Guest Info */}
                                 {mbUserType === 'guest' && (
                                     <div className="space-y-3">
-                                        <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-100 rounded-xl">
-                                            <Mail size={14} className="text-emerald-600" />
-                                            <p className="text-[10px] font-bold text-emerald-700">Guest will receive a welcome email with booking details and a link to create an account.</p>
+                                        <div className={`flex items-center gap-2 px-3 py-2 border rounded-xl ${mbGuestEmail.trim() ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-slate-200'}`}>
+                                            <Mail size={14} className={mbGuestEmail.trim() ? 'text-emerald-600' : 'text-slate-400'} />
+                                            <p className={`text-[10px] font-bold ${mbGuestEmail.trim() ? 'text-emerald-700' : 'text-slate-500'}`}>
+                                                {mbGuestEmail.trim()
+                                                    ? 'Guest will receive a welcome email with booking details and a link to create an account.'
+                                                    : 'Email is optional. Without it the guest gets no booking confirmation or receipt.'}
+                                            </p>
                                         </div>
                                         <div className="grid grid-cols-2 gap-3">
                                             <div>
@@ -2664,10 +2793,11 @@ const BookingsAdmin: React.FC = () => {
                                             </div>
                                         </div>
                                         <div>
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 mb-1.5 block">Email Address</label>
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1 mb-1.5 block">
+                                                Email Address <span className="text-slate-300">(Optional)</span>
+                                            </label>
                                             <input
                                                 type="email"
-                                                required={mbUserType === 'guest'}
                                                 placeholder="guest@email.com"
                                                 value={mbGuestEmail}
                                                 onChange={(e) => setMbGuestEmail(e.target.value)}
@@ -2680,7 +2810,7 @@ const BookingsAdmin: React.FC = () => {
                                 {/* Submit */}
                                 <button
                                     type="submit"
-                                    disabled={isSubmitting || mbSendingEmail || !mbCourtId || !mbSelectedSlot || (mbUserType === 'player' && !mbSelectedPlayer) || (mbUserType === 'guest' && (!mbGuestFirstName.trim() || !mbGuestLastName.trim() || !mbGuestEmail.trim()))}
+                                    disabled={isSubmitting || mbSendingEmail || !mbCourtId || mbSelectedSlots.length === 0 || (mbUserType === 'player' && !mbSelectedPlayer) || (mbUserType === 'guest' && (!mbGuestFirstName.trim() || !mbGuestLastName.trim()))}
                                     className="w-full h-14 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-all shadow-xl shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                 >
                                     {isSubmitting || mbSendingEmail ? (
@@ -2699,8 +2829,8 @@ const BookingsAdmin: React.FC = () => {
 
                 {/* Booking Detail View Modal */}
                 {viewingBooking && ReactDOM.createPortal(
-                    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[270] flex items-center justify-center p-6 animate-in fade-in duration-300">
-                        <div className="bg-white w-full max-w-2xl rounded-[40px] p-10 shadow-2xl animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
+                    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[270] flex items-center justify-center p-6 animate-in fade-in duration-300" onClick={() => setViewingBooking(null)}>
+                        <div className="bg-white w-full max-w-2xl rounded-[40px] p-10 shadow-2xl animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                             {/* Header */}
                             <div className="flex justify-between items-start mb-8">
                                 <div>
@@ -3042,8 +3172,8 @@ const BookingsAdmin: React.FC = () => {
 
                 {/* Pay & Check-In Modal (from booking details) */}
                 {payingBooking && ReactDOM.createPortal(
-                    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[200] flex items-center justify-center p-6 animate-in fade-in duration-300">
-                        <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
+                    <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[200] flex items-center justify-center p-6 animate-in fade-in duration-300" onClick={() => setPayingBooking(null)}>
+                        <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                             {/* Header */}
                             <div className="flex items-center justify-between p-6 border-b border-slate-200">
                                 <div className="flex items-center gap-3">

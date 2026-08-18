@@ -32,6 +32,22 @@ interface CourtItem {
     managerAssignment?: CourtManagerAssignment | null;
 }
 
+const getPricingPulseClass = (court: CourtItem, variant: 'inline' | 'pill' | 'icon' = 'inline') => {
+    const isSetupRequired = (court.status || (court.is_active ? 'Available' : 'Maintenance')) === 'Setup Required';
+
+    if (variant === 'icon') {
+        return isSetupRequired
+            ? 'animate-pulse ring-2 ring-amber-200/80 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:text-amber-800'
+            : 'animate-pulse ring-2 ring-blue-200/70 text-emerald-600 bg-emerald-50 hover:text-emerald-700 hover:bg-emerald-100';
+    }
+
+    if (variant === 'pill') {
+        return 'animate-pulse ring-4 ring-amber-100/80 hover:bg-amber-100';
+    }
+
+    return 'animate-pulse rounded-lg px-2 py-1 ring-4 ring-blue-100/70 hover:text-blue-900';
+};
+
 const LocationsList: React.FC = () => {
     const [locations, setLocations] = useState<Location[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -2386,8 +2402,8 @@ const LocationsList: React.FC = () => {
 
             {/* View Court Detail Modal */}
             {isViewCourtModalOpen && viewingCourt && ReactDOM.createPortal(
-                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-40 flex items-center justify-center p-6 animate-in fade-in duration-300">
-                    <div className="bg-white w-full max-w-2xl rounded-[40px] shadow-2xl animate-in zoom-in-95 duration-300 z-[100] max-h-[90vh] overflow-hidden">
+                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-40 flex items-center justify-center p-6 animate-in fade-in duration-300" onClick={() => { setIsViewCourtModalOpen(false); setViewingCourt(null); }}>
+                    <div className="bg-white w-full max-w-2xl rounded-[40px] shadow-2xl animate-in zoom-in-95 duration-300 z-[100] max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
                         <div className="overflow-y-auto max-h-[90vh] p-10">
                             <div className="flex justify-between items-center mb-8">
                                 <div>
@@ -2629,8 +2645,8 @@ const LocationsList: React.FC = () => {
 
             {/* Add Court Modal */}
             {isAddCourtModalOpen && ReactDOM.createPortal(
-                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-40 flex items-center justify-center p-6 animate-in fade-in duration-300">
-                    <div className="bg-white w-full max-w-xl rounded-[40px] shadow-2xl animate-in zoom-in-95 duration-300 z-[100] max-h-[90vh] overflow-hidden">
+                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-40 flex items-center justify-center p-6 animate-in fade-in duration-300" onClick={() => setIsAddCourtModalOpen(false)}>
+                    <div className="bg-white w-full max-w-xl rounded-[40px] shadow-2xl animate-in zoom-in-95 duration-300 z-[100] max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
                         <div className="overflow-y-auto max-h-[90vh] p-10">
                             <div className="flex justify-between items-center mb-8">
                                 <h2 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">Add New Court</h2>
@@ -2840,8 +2856,8 @@ const LocationsList: React.FC = () => {
 
             {/* Edit Court Modal */}
             {isEditCourtModalOpen && ReactDOM.createPortal(
-                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-40 flex items-center justify-center p-6 animate-in fade-in duration-300">
-                    <div className="bg-white w-full max-w-xl rounded-[40px] shadow-2xl animate-in zoom-in-95 duration-300 z-[100] max-h-[90vh] overflow-hidden">
+                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-40 flex items-center justify-center p-6 animate-in fade-in duration-300" onClick={() => { setIsEditCourtModalOpen(false); setEditingCourt(null); }}>
+                    <div className="bg-white w-full max-w-xl rounded-[40px] shadow-2xl animate-in zoom-in-95 duration-300 z-[100] max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
                         <div className="overflow-y-auto max-h-[90vh] p-10">
                             <div className="flex justify-between items-center mb-8">
                                 <h2 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">Edit Court</h2>
@@ -3085,8 +3101,8 @@ const LocationsList: React.FC = () => {
 
             {/* Reusable Image Gallery Modal */}
             {isImageGalleryOpen && ReactDOM.createPortal(
-                <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-6 animate-in fade-in duration-200">
-                    <div className="bg-white w-full max-w-3xl rounded-[32px] shadow-2xl p-6 md:p-8 relative max-h-[90vh] overflow-y-auto">
+                <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-6 animate-in fade-in duration-200" onClick={() => { setIsImageGalleryOpen(false); setImageGalleryTarget(null); }}>
+                    <div className="bg-white w-full max-w-3xl rounded-[32px] shadow-2xl p-6 md:p-8 relative max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-between mb-4">
                             <div>
                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Image Library</p>
@@ -3122,8 +3138,8 @@ const LocationsList: React.FC = () => {
 
             {/* Add Location Modal */}
             {isAddModalOpen && ReactDOM.createPortal(
-                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-40 flex items-center justify-center p-6 animate-in fade-in duration-300">
-                    <div className="bg-white w-full max-w-4xl rounded-[40px] p-10 shadow-2xl animate-in zoom-in-95 duration-300 z-[100] max-h-[90vh] overflow-y-auto">
+                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-40 flex items-center justify-center p-6 animate-in fade-in duration-300" onClick={() => setIsAddModalOpen(false)}>
+                    <div className="bg-white w-full max-w-4xl rounded-[40px] p-10 shadow-2xl animate-in zoom-in-95 duration-300 z-[100] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-between items-center mb-8">
                             <h2 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">Add New Location</h2>
                             <button onClick={() => setIsAddModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
@@ -3136,8 +3152,8 @@ const LocationsList: React.FC = () => {
 
             {/* Edit Location Modal */}
             {isEditModalOpen && ReactDOM.createPortal(
-                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-40 flex items-center justify-center p-6 animate-in fade-in duration-300">
-                    <div className="bg-white w-full max-w-4xl rounded-[40px] p-10 shadow-2xl animate-in zoom-in-95 duration-300 z-[100] max-h-[90vh] overflow-y-auto">
+                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-40 flex items-center justify-center p-6 animate-in fade-in duration-300" onClick={() => { setIsEditModalOpen(false); setEditingLocation(null); }}>
+                    <div className="bg-white w-full max-w-4xl rounded-[40px] p-10 shadow-2xl animate-in zoom-in-95 duration-300 z-[100] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-between items-center mb-8">
                             <h2 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">Edit Location</h2>
                             <button onClick={() => { setIsEditModalOpen(false); setEditingLocation(null); }} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
@@ -3150,8 +3166,8 @@ const LocationsList: React.FC = () => {
 
             {/* Location List Management Modal */}
             {isLocationListModalOpen && ReactDOM.createPortal(
-                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-40 flex items-center justify-center p-6 animate-in fade-in duration-300">
-                    <div className="bg-white w-full max-w-4xl rounded-[40px] p-10 shadow-2xl animate-in zoom-in-95 duration-300 z-[100] max-h-[90vh] overflow-y-auto">
+                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-40 flex items-center justify-center p-6 animate-in fade-in duration-300" onClick={() => setIsLocationListModalOpen(false)}>
+                    <div className="bg-white w-full max-w-4xl rounded-[40px] p-10 shadow-2xl animate-in zoom-in-95 duration-300 z-[100] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                         {/* Header */}
                         <div className="flex justify-between items-center mb-2">
                             <div>
@@ -3271,8 +3287,8 @@ const LocationsList: React.FC = () => {
 
             {/* Master Amenities Management Modal */}
             {isMasterAmenitiesOpen && ReactDOM.createPortal(
-                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-40 flex items-center justify-center p-6 animate-in fade-in duration-300">
-                    <div className="bg-white w-full max-w-lg rounded-[40px] p-10 shadow-2xl animate-in zoom-in-95 duration-300 z-[100] max-h-[90vh] overflow-y-auto">
+                <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-40 flex items-center justify-center p-6 animate-in fade-in duration-300" onClick={() => setIsMasterAmenitiesOpen(false)}>
+                    <div className="bg-white w-full max-w-lg rounded-[40px] p-10 shadow-2xl animate-in zoom-in-95 duration-300 z-[100] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-between items-center mb-2">
                             <h2 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">Amenities</h2>
                             <button onClick={() => setIsMasterAmenitiesOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
@@ -3427,25 +3443,9 @@ const CourtManagerModal: React.FC<{
         }
     };
 
-    const getPricingPulseClass = (court: CourtItem, variant: 'inline' | 'pill' | 'icon' = 'inline') => {
-        const isSetupRequired = (court.status || (court.is_active ? 'Available' : 'Maintenance')) === 'Setup Required';
-
-        if (variant === 'icon') {
-            return isSetupRequired
-                ? 'animate-pulse ring-2 ring-amber-200/80 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:text-amber-800'
-                : 'animate-pulse ring-2 ring-blue-200/70 text-emerald-600 bg-emerald-50 hover:text-emerald-700 hover:bg-emerald-100';
-        }
-
-        if (variant === 'pill') {
-            return 'animate-pulse ring-4 ring-amber-100/80 hover:bg-amber-100';
-        }
-
-        return 'animate-pulse rounded-lg px-2 py-1 ring-4 ring-blue-100/70 hover:text-blue-900';
-    };
-
     return ReactDOM.createPortal(
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-xl rounded-[36px] border border-slate-100 bg-white p-8 shadow-2xl">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" onClick={onClose}>
+            <div className="w-full max-w-xl rounded-[36px] border border-slate-100 bg-white p-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 <div className="mb-6 flex items-start justify-between gap-4">
                     <div>
                         <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-600">Court Manager</p>

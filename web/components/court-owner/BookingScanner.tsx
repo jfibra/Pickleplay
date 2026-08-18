@@ -323,8 +323,8 @@ const BookingScanner: React.FC<BookingScannerProps> = ({ onClose }) => {
     };
 
     return (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md flex items-center justify-center z-[200] p-6 animate-in fade-in duration-300">
-            <div className="bg-white rounded-[40px] shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-300">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md flex items-center justify-center z-[200] p-6 animate-in fade-in duration-300" onClick={onClose}>
+            <div className="bg-white rounded-[40px] shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-300" onClick={(e) => e.stopPropagation()}>
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-slate-200">
                     <div className="flex items-center gap-3">
