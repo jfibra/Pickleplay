@@ -886,6 +886,7 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
   const userMarkerRef = useRef<any>(null);
   const userLocationMarkerRef = useRef<L.LayerGroup | null>(null);
   const pulseCirclesRef = useRef<L.Circle[]>([]);
+  const hasAutoFitRef = useRef(false);
 
   const centerSelectedLocationOnMap = useCallback(() => {
     if (!mapInstanceRef.current || !selectedLocation?.latitude || !selectedLocation?.longitude) return;
@@ -1573,14 +1574,15 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
       userLocationMarkerRef.current = null;
     }
 
-    // Use URL params for center/zoom, or default to Manila
+    // Use URL params for center/zoom, then GPS. With neither, open on the whole
+    // country — updateMarkers() reframes onto the real courts as soon as they load.
     const center: L.LatLngTuple = urlLat && urlLng
       ? [parseFloat(urlLat), parseFloat(urlLng)]
       : userLocation
         ? [userLocation.lat, userLocation.lng]
-        : [14.5995, 121.0437];
+        : PHILIPPINES_CENTER;
 
-    const zoom = urlZoom ? parseInt(urlZoom) : (userLocation ? 13 : 12);
+    const zoom = urlZoom ? parseInt(urlZoom) : (userLocation ? 13 : 6);
 
     const map = createMap(mapRef.current, {
       center,
@@ -1674,6 +1676,8 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
     markersRef.current.forEach(marker => marker.remove());
     markersRef.current = [];
 
+    const markerPoints: L.LatLngTuple[] = [];
+
     // Create markers for locations instead of individual courts (same as GuestBooking)
     locations.forEach(location => {
       if (location.latitude && location.longitude) {
@@ -1750,10 +1754,24 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
         });
 
         markersRef.current.push(marker);
+        markerPoints.push([location.latitude, location.longitude]);
       }
     });
 
-    // Debug logging removed: marker count
+    // Frame the courts we actually have. Without this the map sits on its default
+    // view while every court is somewhere else (Cebu, Davao, ...) and looks empty.
+    // Only the first draw claims the camera, so later filtering never yanks the
+    // view away from wherever the user has panned to.
+    const hasCameraTarget = !!(urlLat && urlLng) || !!activeLocationId || !!(userLocation && gpsEnabled);
+    if (!hasAutoFitRef.current && !hasCameraTarget && markerPoints.length > 0) {
+      hasAutoFitRef.current = true;
+      map.invalidateSize(); // make sure the fit is computed against the real container size
+      map.fitBounds(L.latLngBounds(markerPoints), {
+        padding: [56, 56],
+        maxZoom: markerPoints.length === 1 ? 15 : 13,
+        animate: false,
+      });
+    }
   };
 
   // Re-render markers when data or filters change
