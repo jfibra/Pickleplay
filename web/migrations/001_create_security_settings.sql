@@ -1,7 +1,7 @@
 -- Phase 1: Create security_settings and sessions tables
 -- This migration separates security concerns from user profiles
 
--- Create security_settings table
+-- Create security_settings tables
 CREATE TABLE IF NOT EXISTS security_settings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL UNIQUE,
