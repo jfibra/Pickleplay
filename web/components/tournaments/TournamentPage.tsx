@@ -15,6 +15,7 @@ import {
   registerSquad, getSquadRegistrations, getSquadRegistration, withdrawSquadRegistration,
   approveSquadRegistration, rejectSquadRegistration, lockAllRosters,
   markPlayerInjured, evaluateSquadRosterEligibility,
+  registerForDivision, uploadRegistrationReceipt,
   type TournamentConflict, type PendingRegistrationDetailed
 } from '../../services/tournaments';
 import { squadsService, type Squad, type SquadMember } from '../../services/squads';
@@ -25,6 +26,17 @@ import PlayerApprovalCard from './PlayerApprovalCard';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import Toast, { ToastType } from '../ui/Toast';
 import useSEO from '../../hooks/useSEO';
+import TournamentRulesPanel, { type TournamentDivision } from './TournamentRulesPanel';
+import DivisionRegistrationModal, {
+  type DivisionRegistrationFormResult,
+} from './DivisionRegistrationModal';
+import { parseTournamentExtras } from './tournamentExtras';
+import {
+  clearPendingDivisionRegistration,
+  readPendingDivisionRegistration,
+  savePendingDivisionRegistration,
+  tournamentLoginRedirectPath,
+} from './pendingDivisionRegistration';
 
 type Tab = 'overview' | 'bracket' | 'participants';
 
@@ -64,6 +76,17 @@ const TournamentPage: React.FC = () => {
   const [isRegisteringSquad, setIsRegisteringSquad] = useState(false);
   const [userSquadRole, setUserSquadRole] = useState<string | null>(null);
   const [selectedMatch, setSelectedMatch] = useState<TournamentMatch | null>(null);
+
+  // Division registration (structured multi-category tournaments)
+  const [selectedDivisionIds, setSelectedDivisionIds] = useState<string[]>([]);
+  const [divisionModalOpen, setDivisionModalOpen] = useState(false);
+  const [divisionWaitlist, setDivisionWaitlist] = useState(false);
+  const [profileSeed, setProfileSeed] = useState<{
+    fullName?: string;
+    email?: string;
+    phone?: string;
+  } | null>(null);
+  const resumedRegistrationRef = React.useRef(false);
 
   // Toast state
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
@@ -125,9 +148,14 @@ const TournamentPage: React.FC = () => {
       if (userId && t) {
         const { data: profile } = await supabase
           .from('profiles')
-          .select('roles')
+          .select('roles, full_name')
           .eq('id', userId)
           .single();
+
+        setProfileSeed({
+          fullName: profile?.full_name || undefined,
+          email: session?.user?.email || undefined,
+        });
 
         const { data: court } = t.courtId
           ? await supabase.from('courts').select('owner_id').eq('id', t.courtId).single()
@@ -213,7 +241,6 @@ const TournamentPage: React.FC = () => {
     try {
       await registerPlayer(tournamentId, currentUserId, applicationMessage || undefined);
       setIsRegistered(true);
-      setRegistrationStatus('pending');
       setShowConflictsDialog(false);
       setApplicationMessage('');
       const [t, regs] = await Promise.all([
@@ -223,8 +250,14 @@ const TournamentPage: React.FC = () => {
       setTournament(t);
       setRegistrations(regs);
       const reg = await getPlayerRegistration(tournamentId, currentUserId);
-      setRegistrationStatus(reg?.status || 'pending');
-      showToast('Registration submitted! Awaiting organizer approval.', 'success');
+      const status = reg?.status || 'pending';
+      setRegistrationStatus(status);
+      showToast(
+        status === 'confirmed'
+          ? "You're registered!"
+          : 'Registration submitted! Awaiting organizer approval.',
+        'success',
+      );
     } catch (err: any) {
       showToast(err.message || 'Failed to register', 'error');
     } finally {
@@ -335,7 +368,7 @@ const TournamentPage: React.FC = () => {
     if (!currentUserId || !tournamentId || !selectedSquadId) return;
     setIsRegisteringSquad(true);
     try {
-      const rosterIds = Array.from(selectedRosterIds);
+      const rosterIds = [...selectedRosterIds];
       await registerSquad(tournamentId, selectedSquadId, currentUserId, rosterIds, applicationMessage || undefined);
       // Reload
       const [squadRegs, myReg] = await Promise.all([
@@ -380,7 +413,7 @@ const TournamentPage: React.FC = () => {
   const tabs: { key: Tab; label: string }[] = [
     { key: 'overview', label: 'Overview' },
     { key: 'bracket', label: 'Bracket' },
-    { key: 'participants', label: `Participants (${registrations.length}${effectiveIsOrganizer && pendingRegistrations.length > 0 ? ` +${pendingRegistrations.length} pending` : ''})` },
+    { key: 'participants', label: `Participants (${registrations.length})` },
   ];
 
   const isFull = tournament ? (tournament.registeredCount || 0) >= (tournament.maxPlayers || 0) : false;
@@ -394,6 +427,171 @@ const TournamentPage: React.FC = () => {
   const isSquadOwner = userSquadRole === 'owner' || userSquadRole === 'captain' || userSquadRole === 'OWNER';
   const hasActiveSquadReg = mySquadReg && mySquadReg.status !== 'withdrawn' && mySquadReg.status !== 'rejected';
 
+  const tournamentExtras = tournament ? parseTournamentExtras(tournament.rules) : null;
+  const hasStructuredDivisions = !!tournamentExtras?.divisions?.length;
+  const deadlinePassed = !!(
+    tournament?.registrationDeadline && new Date() > new Date(tournament.registrationDeadline)
+  );
+  // Organizers review pending in the approval section; everyone else sees pending in the list.
+  const listedRegistrations = effectiveIsOrganizer
+    ? registrations.filter((r) => r.status !== 'pending')
+    : registrations;
+  const confirmedCount = registrations.filter((r) => r.status === 'confirmed').length;
+  const divisionCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const reg of registrations) {
+      if (reg.status === 'withdrawn' || reg.status === 'rejected') continue;
+      const msg = reg.applicationMessage;
+      if (!msg?.startsWith('{')) continue;
+      try {
+        const parsed = JSON.parse(msg) as {
+          divisionId?: string;
+          divisions?: Array<{ divisionId?: string }>;
+        };
+        const ids = parsed.divisions?.map((d) => d.divisionId).filter(Boolean) as string[] | undefined;
+        if (ids?.length) {
+          for (const id of ids) {
+            counts[id] = (counts[id] || 0) + 1;
+          }
+        } else if (parsed.divisionId) {
+          counts[parsed.divisionId] = (counts[parsed.divisionId] || 0) + 1;
+        }
+      } catch { /* ignore */ }
+    }
+    return counts;
+  }, [registrations]);
+
+  const selectedDivisions =
+    tournamentExtras?.divisions.filter((d) => selectedDivisionIds.includes(d.id)) ?? [];
+  const allSelectedFull =
+    selectedDivisions.length > 0 &&
+    selectedDivisions.every((d) => (divisionCounts[d.id] || 0) >= d.maxTeams);
+  const anySelectedFull = selectedDivisions.some(
+    (d) => (divisionCounts[d.id] || 0) >= d.maxTeams,
+  );
+
+  const divisionRegisterCta = (() => {
+    if (selectedDivisions.length === 0) {
+      return { label: 'Select a division to continue', disabled: true, waitlist: false, visible: false };
+    }
+    if (deadlinePassed || tournament?.status !== 'UPCOMING') {
+      return { label: 'Registration closed', disabled: true, waitlist: false, visible: true };
+    }
+    if (!currentUserId) {
+      return { label: 'Log in to register', disabled: false, waitlist: false, visible: true, login: true };
+    }
+    if (isRegistered) {
+      return { label: 'Already registered', disabled: true, waitlist: false, visible: true };
+    }
+    if (allSelectedFull) {
+      return {
+        label:
+          selectedDivisions.length === 1
+            ? `Join Waitlist for ${selectedDivisions[0].categoryName}`
+            : `Join Waitlist (${selectedDivisions.length} divisions)`,
+        disabled: false,
+        waitlist: true,
+        visible: true,
+      };
+    }
+    return {
+      label:
+        selectedDivisions.length === 1
+          ? `Register for ${selectedDivisions[0].categoryName}`
+          : `Register for ${selectedDivisions.length} divisions`,
+      disabled: false,
+      waitlist: anySelectedFull, // mixed: still register; full ones marked waitlist in payload
+      visible: true,
+    };
+  })();
+
+  const toggleDivisionSelection = (division: TournamentDivision) => {
+    setSelectedDivisionIds((prev) =>
+      prev.includes(division.id)
+        ? prev.filter((id) => id !== division.id)
+        : [...prev, division.id],
+    );
+  };
+
+  const openDivisionModal = (waitlist: boolean) => {
+    if (!currentUserId) {
+      beginAuthForRegistration(waitlist);
+      return;
+    }
+    if (selectedDivisions.length === 0) return;
+    setDivisionWaitlist(waitlist);
+    setDivisionModalOpen(true);
+  };
+
+  const beginAuthForRegistration = (waitlist: boolean) => {
+    if (!tournamentId) return;
+    const ids =
+      selectedDivisionIds.length > 0
+        ? selectedDivisionIds
+        : selectedDivisions.map((d) => d.id);
+    if (ids.length === 0) {
+      showToast('Select at least one division first', 'error');
+      return;
+    }
+    savePendingDivisionRegistration({
+      tournamentId,
+      divisionIds: ids,
+      waitlist,
+    });
+    const returnTo = tournamentLoginRedirectPath(tournamentId);
+    localStorage.setItem('auth_redirect', returnTo);
+    navigate(`/login?redirect=${encodeURIComponent(returnTo)}`);
+  };
+
+  const handleDivisionRegistrationSubmit = async (result: DivisionRegistrationFormResult) => {
+    if (!currentUserId || !tournamentId) return;
+    setIsJoining(true);
+    try {
+      let receiptUrl: string | null = null;
+      if (result.paymentReceiptFile) {
+        receiptUrl = await uploadRegistrationReceipt(tournamentId, result.paymentReceiptFile);
+      }
+      const { status } = await registerForDivision(tournamentId, currentUserId, {
+        divisions: result.divisions.map((d) => ({
+          divisionId: d.id,
+          divisionName: d.categoryName,
+          eventType: d.eventType,
+          registrationFee: d.registrationFee,
+          waitlist: (divisionCounts[d.id] || 0) >= d.maxTeams,
+        })),
+        players: result.players,
+        paymentReceiptUrl: receiptUrl,
+        notes: result.notes,
+        waitlist: result.waitlist,
+      });
+      setIsRegistered(true);
+      setRegistrationStatus(status);
+      setDivisionModalOpen(false);
+      setSelectedDivisionIds([]);
+      clearPendingDivisionRegistration();
+      const [t, regs] = await Promise.all([
+        fetchTournamentById(tournamentId),
+        fetchRegistrations(tournamentId),
+      ]);
+      setTournament(t);
+      setRegistrations(regs);
+      showToast(
+        status === 'waitlisted'
+          ? 'Added to waitlist! Organizer will notify you if a spot opens.'
+          : status === 'confirmed'
+            ? "You're registered!"
+            : 'Registration submitted! Awaiting organizer approval.',
+        'success',
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to register';
+      showToast(message, 'error');
+      throw err;
+    } finally {
+      setIsJoining(false);
+    }
+  };
+
   const canRegister = tournament?.status === 'UPCOMING'
     && !isFull
     && !isRegistered
@@ -401,6 +599,41 @@ const TournamentPage: React.FC = () => {
     && (!isSquadMode || !hasActiveSquadReg)
     && (!tournament.registrationDeadline || new Date() <= new Date(tournament.registrationDeadline));
   const isPast = tournament?.status === 'COMPLETED';
+
+  // After login/signup, restore selected divisions and open the registration modal
+  useEffect(() => {
+    if (isLoading || !tournamentId || !currentUserId || !tournament) return;
+    if (isRegistered || effectiveIsOrganizer || isSquadMode) return;
+    if (resumedRegistrationRef.current) return;
+
+    const pending = readPendingDivisionRegistration(tournamentId);
+    if (!pending || pending.divisionIds.length === 0) return;
+
+    const validIds = (tournamentExtras?.divisions || [])
+      .map((d) => d.id)
+      .filter((id) => pending.divisionIds.includes(id));
+
+    if (validIds.length === 0) {
+      clearPendingDivisionRegistration();
+      return;
+    }
+
+    resumedRegistrationRef.current = true;
+    setSelectedDivisionIds(validIds);
+    setDivisionWaitlist(!!pending.waitlist);
+    setDivisionModalOpen(true);
+    clearPendingDivisionRegistration();
+    showToast('Welcome back — finish your registration below.', 'info');
+  }, [
+    isLoading,
+    tournamentId,
+    currentUserId,
+    tournament,
+    isRegistered,
+    effectiveIsOrganizer,
+    isSquadMode,
+    tournamentExtras,
+  ]);
 
   useSEO({
     title: tournament ? `${tournament.name} | Pickleball Tournament Philippines` : 'Pickleball Tournament Details',
@@ -455,14 +688,19 @@ const TournamentPage: React.FC = () => {
       {/* ── Page header bar ── */}
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-100 px-4 sm:px-6 h-14 flex items-center gap-3">
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => navigate('/tournaments')}
           className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors"
+          aria-label="Back to tournaments"
         >
           <ArrowLeft size={20} />
         </button>
-        <span className="text-xs font-black uppercase tracking-widest text-slate-400">
+        <button
+          type="button"
+          onClick={() => navigate('/tournaments')}
+          className="text-xs font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 transition-colors"
+        >
           Tournaments
-        </span>
+        </button>
         {tournament && (
           <>
             <ChevronRight size={14} className="text-slate-300" />
@@ -580,12 +818,18 @@ const TournamentPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* Info cards */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <InfoCard icon={Calendar} label="Date" value={new Date(tournament.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} />
-                  <InfoCard icon={Clock} label="Start" value={tournament.startTime || '—'} />
-                  <InfoCard icon={MapPin} label="Venue" value={tournament.location} />
-                  <InfoCard icon={Users} label="Players" value={`${tournament.registeredCount} / ${tournament.maxPlayers}`} />
+                {/* Info cards — keep it light for players */}
+                <div className="grid grid-cols-2 gap-3">
+                  <InfoCard
+                    icon={Calendar}
+                    label="When"
+                    value={new Date(tournament.date).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  />
+                  <InfoCard icon={MapPin} label="Where" value={tournament.location} />
                 </div>
 
                 {/* Pending approvals indicator */}
@@ -609,92 +853,101 @@ const TournamentPage: React.FC = () => {
                   </button>
                 )}
 
-                {/* Description */}
-                {tournament.description && (
-                  <div>
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">About</h3>
-                    <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-line">{tournament.description}</p>
-                  </div>
-                )}
-
-                {/* Details grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {tournament.eventType && (
-                    <DetailRow icon={Swords} label="Event Type" value={tournament.eventType.replace('_', ' ')} />
-                  )}
-                  {tournament.category && (
-                    <DetailRow icon={Shield} label="Category" value={tournament.category} />
-                  )}
-                  {tournament.skillLevel && (
-                    <DetailRow icon={Trophy} label="Skill Level" value={tournament.skillLevel} />
-                  )}
-                  {tournament.checkInTime && (
-                    <DetailRow icon={Clock} label="Check-in" value={tournament.checkInTime} />
-                  )}
-                  {tournament.numCourts && (
-                    <DetailRow icon={MapPin} label="Courts" value={`${tournament.numCourts}`} />
-                  )}
-                  {tournament.registrationDeadline && (
-                    <DetailRow icon={Calendar} label="Reg. Deadline" value={new Date(tournament.registrationDeadline).toLocaleDateString()} />
+                {/* Short welcome blurb */}
+                <div className="rounded-3xl bg-blue-50 border border-blue-100 px-5 py-4">
+                  <p className="text-sm font-bold text-blue-900 leading-relaxed">
+                    {tournament.description?.split('\n')[0]?.trim() ||
+                      'Pick a division below and register — we will build the event around who joins.'}
+                  </p>
+                  {(tournament.description?.split('\n').filter(Boolean).length ?? 0) > 1 && (
+                    <p className="text-xs text-blue-800/70 font-medium mt-2 leading-relaxed">
+                      {tournament.description
+                        ?.split('\n')
+                        .map((l) => l.trim())
+                        .filter(Boolean)
+                        .slice(1, 3)
+                        .join(' ')}
+                    </p>
                   )}
                 </div>
 
-                {/* Registration mode */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Registration Mode</p>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${regMode === 'squad' ? 'bg-slate-900 text-white' : 'bg-blue-50 text-blue-700'}`}>
-                        {regMode === 'squad' ? 'Squads Only' : 'Individual'}
-                      </span>
-                      {tournament.tournamentMode && (
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                          tournament.tournamentMode === 'competitive' ? 'bg-blue-50 text-blue-700 border border-blue-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                        }`}>
-                          {tournament.tournamentMode}
-                        </span>
-                      )}
+                {/* Divisions — primary action for players */}
+                {tournament.rules && hasStructuredDivisions ? (
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 tracking-tight mb-1">
+                      Choose your division
+                    </h3>
+                    <p className="text-sm text-slate-500 font-medium mb-4">
+                      {(() => {
+                        const reqs = tournamentExtras?.registrationRequirements;
+                        const anyUpload =
+                          !!reqs?.requireValidId ||
+                          !!reqs?.requireProofOfResidency ||
+                          !!reqs?.requirePaymentReceipt;
+                        const anyFee = (tournamentExtras?.divisions || []).some(
+                          (d) => (d.registrationFee ?? 0) > 0,
+                        );
+                        if (!anyFee && !anyUpload) {
+                          return 'Select one or more — free to join, no documents needed.';
+                        }
+                        if (!anyUpload) return 'Select one or more divisions to register.';
+                        return 'Select one or more divisions, then complete registration.';
+                      })()}
+                    </p>
+                    <div className="bg-white rounded-3xl p-4 border border-slate-100">
+                      <TournamentRulesPanel
+                        rules={tournament.rules}
+                        interactive={!isSquadMode && !effectiveIsOrganizer}
+                        selectedDivisionIds={selectedDivisionIds}
+                        onToggleDivision={toggleDivisionSelection}
+                        divisionCounts={divisionCounts}
+                        deadlinePassed={deadlinePassed}
+                        playerFriendly
+                      />
                     </div>
                   </div>
-
-                  {(tournament.squadRequirements && tournament.registrationMode === 'squad') && (
+                ) : tournament.rules ? (
+                  <div>
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                      Details
+                    </h3>
                     <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Squad Requirements</p>
-                      <ul className="text-sm text-slate-700 space-y-1 list-disc list-inside">
-                        <li>Min roster: {tournament.squadRequirements.minSize ?? 2} players</li>
-                        {tournament.squadRequirements.ratingMin !== undefined && (
-                          <li>Rating min: {tournament.squadRequirements.ratingMin}</li>
-                        )}
-                        {tournament.squadRequirements.ratingMax !== undefined && (
-                          <li>Rating max: {tournament.squadRequirements.ratingMax}</li>
-                        )}
-                        {tournament.squadRequirements.regions && tournament.squadRequirements.regions.length > 0 && (
-                          <li>Regions: {tournament.squadRequirements.regions.join(', ')}</li>
-                        )}
-                        <li>Membership: {tournament.squadRequirements.membership || 'any'}</li>
-                      </ul>
-                      {isSquadMode && userSquads.length > 0 && !hasActiveSquadReg && (
-                        <div className="mt-3 text-xs text-slate-500 font-bold">
-                          You have {userSquads.length} squad{userSquads.length > 1 ? 's' : ''} that could register.
-                        </div>
-                      )}
-                      {hasActiveSquadReg && (
-                        <div className="mt-3 text-xs font-bold text-emerald-600">
-                          ✓ Your squad is {mySquadReg?.status}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Rules */}
-                {tournament.rules && (
-                  <div>
-                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Rules</h3>
-                    <div className="bg-slate-50 rounded-2xl p-4">
-                      <p className="text-sm text-slate-600 whitespace-pre-line">{tournament.rules}</p>
+                      <TournamentRulesPanel
+                        rules={tournament.rules}
+                        announcement={tournament.announcement}
+                      />
                     </div>
                   </div>
+                ) : null}
+
+                {/* Organizer-only extras stay available */}
+                {effectiveIsOrganizer && (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <DetailRow
+                        icon={Users}
+                        label="Registered"
+                        value={`${tournament.registeredCount} / ${tournament.maxPlayers}`}
+                      />
+                      {tournament.registrationDeadline && (
+                        <DetailRow
+                          icon={Calendar}
+                          label="Reg. Deadline"
+                          value={new Date(tournament.registrationDeadline).toLocaleDateString()}
+                        />
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                          Registration Mode
+                        </p>
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${regMode === 'squad' ? 'bg-slate-900 text-white' : 'bg-blue-50 text-blue-700'}`}>
+                          {regMode === 'squad' ? 'Squads Only' : 'Individual'}
+                        </span>
+                      </div>
+                    </div>
+                  </>
                 )}
 
                 {/* Prizes */}
@@ -833,6 +1086,14 @@ const TournamentPage: React.FC = () => {
                       {registrations.length} / {tournament?.maxPlayers || '∞'} Players
                     </span>
                   </div>
+                  {confirmedCount > 0 && confirmedCount !== registrations.length && (
+                    <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-2xl px-4 py-2">
+                      <CheckCircle2 size={14} className="text-emerald-600" />
+                      <span className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">
+                        {confirmedCount} Confirmed
+                      </span>
+                    </div>
+                  )}
                   {registrations.filter(r => r.checkedIn).length > 0 && (
                     <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-2xl px-4 py-2">
                       <CheckCircle2 size={14} className="text-emerald-600" />
@@ -844,13 +1105,19 @@ const TournamentPage: React.FC = () => {
                   {currentUserId && registrations.some(r => r.playerId === currentUserId) && (
                     <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100 rounded-2xl px-4 py-2">
                       <BadgeCheck size={14} className="text-indigo-600" />
-                      <span className="text-[10px] font-black text-indigo-700 uppercase tracking-widest">You're In!</span>
+                      <span className="text-[10px] font-black text-indigo-700 uppercase tracking-widest">
+                        {registrations.find(r => r.playerId === currentUserId)?.status === 'confirmed'
+                          ? "You're In!"
+                          : registrations.find(r => r.playerId === currentUserId)?.status === 'waitlisted'
+                            ? 'Waitlisted'
+                            : 'Pending'}
+                      </span>
                     </div>
                   )}
                 </div>
 
                 {/* Search participants */}
-                {registrations.length > 5 && (
+                {listedRegistrations.length > 5 && (
                   <div className="relative">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
                     <input
@@ -914,18 +1181,18 @@ const TournamentPage: React.FC = () => {
                   </div>
                 ) : null}
 
-                {registrations.length === 0 ? (
+                {listedRegistrations.length === 0 && !(effectiveIsOrganizer && pendingRegistrations.length > 0) ? (
                   <div className="text-center py-16">
                     <Users className="w-12 h-12 text-slate-200 mx-auto mb-3" />
                     <p className="font-black text-slate-300 uppercase text-sm">No participants yet</p>
                     <p className="text-xs text-slate-300 mt-1">Be the first to register!</p>
                   </div>
-                ) : (
+                ) : listedRegistrations.length > 0 ? (
                   <div className="space-y-2">
                     <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                       Players {participantSearch && `matching "${participantSearch}"`}
                     </h4>
-                    {registrations
+                    {listedRegistrations
                       .filter(reg => {
                         if (!participantSearch.trim()) return true;
                         const name = reg.player?.full_name || '';
@@ -975,12 +1242,23 @@ const TournamentPage: React.FC = () => {
                                   <CheckCircle2 size={10} /> Checked In
                                 </span>
                               )}
+                              <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
+                                reg.status === 'confirmed'
+                                  ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                                  : reg.status === 'waitlisted'
+                                    ? 'bg-amber-50 text-amber-600 border-amber-100'
+                                    : reg.status === 'pending'
+                                      ? 'bg-yellow-50 text-yellow-700 border-yellow-100'
+                                      : 'bg-slate-50 text-slate-500 border-slate-100'
+                              }`}>
+                                {reg.status === 'confirmed' ? 'Confirmed' : reg.status === 'waitlisted' ? 'Waitlisted' : reg.status === 'pending' ? 'Pending' : reg.status}
+                              </span>
                               <span className="text-[10px] font-black text-slate-300">#{i + 1}</span>
                             </div>
                           </div>
                         );
                       })}
-                    {registrations.filter(reg => {
+                    {listedRegistrations.filter(reg => {
                       if (!participantSearch.trim()) return true;
                       return (reg.player?.full_name || '').toLowerCase().includes(participantSearch.toLowerCase());
                     }).length === 0 && participantSearch && (
@@ -989,7 +1267,7 @@ const TournamentPage: React.FC = () => {
                       </div>
                     )}
                   </div>
-                )}
+                ) : null}
               </div>
             )}
           </div>
@@ -1214,6 +1492,58 @@ const TournamentPage: React.FC = () => {
                     </>
 
                   /* ── Individual mode footer ── */
+                  ) : hasStructuredDivisions ? (
+                    isRegistered ? (
+                      <div className="flex gap-3">
+                        <div className={`flex-[3] flex items-center justify-center gap-2 py-4 rounded-2xl border font-black text-xs uppercase tracking-widest ${
+                          registrationStatus === 'pending' || registrationStatus === 'waitlisted'
+                            ? 'bg-amber-50 text-amber-700 border-amber-100'
+                            : 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                        }`}>
+                          {registrationStatus === 'waitlisted'
+                            ? 'On Waitlist'
+                            : registrationStatus === 'pending'
+                              ? 'Pending Approval'
+                              : "You're Registered ✓"}
+                        </div>
+                        <button
+                          onClick={handleLeave}
+                          disabled={isJoining}
+                          className="flex-1 flex items-center justify-center gap-2 bg-rose-50 text-rose-500 hover:bg-rose-100 py-4 rounded-2xl border border-rose-100 font-black text-[10px] uppercase tracking-widest transition-colors disabled:opacity-50"
+                        >
+                          <UserMinus size={16} /> Withdraw
+                        </button>
+                      </div>
+                    ) : divisionRegisterCta.visible ? (
+                      <button
+                        type="button"
+                        disabled={divisionRegisterCta.disabled || isJoining}
+                        onClick={() => {
+                          if ('login' in divisionRegisterCta && divisionRegisterCta.login) {
+                            beginAuthForRegistration(!!divisionRegisterCta.waitlist);
+                            return;
+                          }
+                          openDivisionModal(!!divisionRegisterCta.waitlist);
+                        }}
+                        className={`w-full py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg animate-in slide-in-from-bottom-2 duration-300 ${
+                          divisionRegisterCta.disabled
+                            ? 'bg-slate-100 text-slate-400 shadow-none cursor-not-allowed'
+                            : divisionRegisterCta.waitlist
+                              ? 'bg-amber-500 text-white hover:bg-amber-600 shadow-amber-200'
+                              : 'bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200'
+                        }`}
+                      >
+                        <UserPlus size={16} />
+                        {divisionRegisterCta.label}
+                      </button>
+                    ) : (
+                      <div className="text-center py-2">
+                        <p className="text-slate-400 font-bold text-xs uppercase">
+                          Select one or more divisions above to register
+                        </p>
+                      </div>
+                    )
+
                   ) : (
                     <>
                       {registrationStatus === 'rejected' ? (
@@ -1386,6 +1716,17 @@ const TournamentPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      <DivisionRegistrationModal
+        isOpen={divisionModalOpen}
+        divisions={selectedDivisions}
+        waitlist={divisionWaitlist}
+        requirePaymentReceipt={!!tournamentExtras?.registrationRequirements.requirePaymentReceipt}
+        profileSeed={profileSeed}
+        isSubmitting={isJoining}
+        onClose={() => setDivisionModalOpen(false)}
+        onSubmit={handleDivisionRegistrationSubmit}
+      />
 
       <Toast
         message={toast.message}

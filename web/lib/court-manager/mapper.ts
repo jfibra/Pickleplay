@@ -23,7 +23,7 @@ export const getCourtManagerStatusLabel = (status: CourtManagerStatus) => {
     case 'removed':
       return 'Removed';
     default:
-      return status.replace(/_/g, ' ');
+      return String(status).replace(/_/g, ' ');
   }
 };
 

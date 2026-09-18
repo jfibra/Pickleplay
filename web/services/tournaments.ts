@@ -57,6 +57,8 @@ export function mapTournament(t: any): Tournament {
     announcement: t.announcement,
     createdAt: t.created_at,
     updatedAt: t.updated_at,
+    cancelledAt: t.cancelled_at ?? undefined,
+    archivedAt: t.archived_at ?? undefined,
     registrationMode: t.registration_mode,
     squadRequirements: t.squad_requirements || undefined,
     allowSoloFallback: t.allow_solo_fallback,
@@ -105,6 +107,7 @@ function mapRegistration(r: any): TournamentRegistration {
     checkedIn: r.checked_in,
     status: r.status,
     registeredAt: r.registered_at ?? r.created_at,
+    applicationMessage: r.application_message ?? undefined,
     player: r.profiles
       ? { id: r.profiles.id, full_name: r.profiles.full_name, avatar_url: r.profiles.avatar_url }
       : undefined,
@@ -181,6 +184,7 @@ export interface CreateTournamentInput {
   numCourts?: number;
   rules?: string;
   prizes?: string;
+  announcement?: string;
   courtId?: string;
   locationId?: string;
   sponsorBannerUrl?: string;
@@ -271,7 +275,9 @@ export async function updateTournament(id: string, updates: Partial<CreateTourna
   if (updates.category !== undefined) payload.category = updates.category;
   if (updates.startTime !== undefined) payload.start_time = updates.startTime;
   if (updates.checkInTime !== undefined) payload.check_in_time = updates.checkInTime;
-  if (updates.registrationDeadline !== undefined) payload.registration_deadline = updates.registrationDeadline;
+  if (updates.registrationDeadline !== undefined) {
+    payload.registration_deadline = updates.registrationDeadline || null;
+  }
   if (updates.numCourts !== undefined) payload.num_courts = updates.numCourts;
   if (updates.rules !== undefined) payload.rules = updates.rules;
   if (updates.prizes !== undefined) payload.prizes = updates.prizes;
@@ -283,6 +289,7 @@ export async function updateTournament(id: string, updates: Partial<CreateTourna
   if (updates.allowSoloFallback !== undefined) payload.allow_solo_fallback = updates.allowSoloFallback;
   if (updates.tournamentMode !== undefined) payload.tournament_mode = updates.tournamentMode;
   if (updates.rosterLockTiming !== undefined) payload.roster_lock_timing = updates.rosterLockTiming;
+  if (updates.announcement !== undefined) payload.announcement = updates.announcement;
 
   if (updates.imageFile) {
     payload.image_url = await uploadTournamentPoster(updates.imageFile);
@@ -318,10 +325,200 @@ export async function uploadTournamentPoster(file: File): Promise<string> {
   return data.publicUrl;
 }
 
+export async function uploadRegistrationReceipt(
+  tournamentId: string,
+  file: File,
+): Promise<string> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const ext = file.name.split('.').pop() || 'bin';
+  const path = `receipts/${tournamentId}/${user.id}-${Date.now()}.${ext}`;
+
+  const { error } = await supabase.storage.from('tournaments').upload(path, file);
+  if (error) throw error;
+
+  const { data } = supabase.storage.from('tournaments').getPublicUrl(path);
+  return data.publicUrl;
+}
+
+export type DivisionRegistrationPayload = {
+  divisions: Array<{
+    divisionId: string;
+    divisionName: string;
+    eventType: string;
+    registrationFee: number;
+    waitlist?: boolean;
+  }>;
+  players: Array<{ fullName: string; email: string; phone: string }>;
+  paymentReceiptUrl?: string | null;
+  notes?: string;
+  waitlist?: boolean;
+};
+
+/** Register the current user into one or more divisions (details stored in application_message). */
+export async function registerForDivision(
+  tournamentId: string,
+  playerId: string,
+  payload: DivisionRegistrationPayload,
+): Promise<{ status: 'pending' | 'confirmed' | 'waitlisted' }> {
+  const tournament = await fetchTournamentById(tournamentId);
+  if (!tournament) throw new Error('Tournament not found');
+  if (tournament.status !== 'UPCOMING') throw new Error('Registration is closed');
+  if (tournament.registrationDeadline && new Date() > new Date(tournament.registrationDeadline)) {
+    throw new Error('Registration deadline has passed');
+  }
+
+  const isWaitlist = !!payload.waitlist || payload.divisions.every((d) => d.waitlist);
+  if (!isWaitlist && (tournament.registeredCount ?? 0) >= (tournament.maxPlayers ?? Number.MAX_SAFE_INTEGER)) {
+    throw new Error('Tournament is full — join the waitlist instead');
+  }
+
+  const primary = payload.divisions[0];
+  const applicationMessage = JSON.stringify({
+    type: 'division_registration_v1',
+    divisionId: primary?.divisionId,
+    divisionName: primary?.divisionName,
+    eventType: primary?.eventType,
+    divisions: payload.divisions,
+    players: payload.players,
+    paymentReceiptUrl: payload.paymentReceiptUrl || null,
+    notes: payload.notes || null,
+    waitlist: isWaitlist,
+  });
+
+  const status = resolveInitialRegistrationStatus(tournament, isWaitlist);
+  const now = new Date().toISOString();
+
+  const { error } = await supabase
+    .from('tournament_registrations')
+    .upsert(
+      {
+        tournament_id: tournamentId,
+        player_id: playerId,
+        status,
+        registered_at: now,
+        approved_by: status === 'confirmed' ? playerId : null,
+        approved_at: status === 'confirmed' ? now : null,
+        application_message: applicationMessage,
+      },
+      {
+        onConflict: 'tournament_id,player_id',
+        ignoreDuplicates: false,
+      },
+    );
+
+  if (error) throw error;
+  return { status };
+}
+
 
 // ════════════════════════════════════════════════════════════════
 // Admin actions
 // ════════════════════════════════════════════════════════════════
+
+/** Rejected / terminated tournaments stay visible this long, then move to Archived. */
+export const TOURNAMENT_ARCHIVE_AFTER_DAYS = 3;
+const ARCHIVE_AFTER_MS = TOURNAMENT_ARCHIVE_AFTER_DAYS * 24 * 60 * 60 * 1000;
+const LOCAL_ARCHIVED_KEY = 'pickleplay_admin_archived_tournaments';
+
+function readLocalArchivedIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(LOCAL_ARCHIVED_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeLocalArchivedIds(ids: Set<string>) {
+  try {
+    localStorage.setItem(LOCAL_ARCHIVED_KEY, JSON.stringify([...ids]));
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+export function markTournamentArchivedLocally(id: string) {
+  const ids = readLocalArchivedIds();
+  ids.add(id);
+  writeLocalArchivedIds(ids);
+}
+
+export function clearTournamentArchivedLocally(id: string) {
+  const ids = readLocalArchivedIds();
+  ids.delete(id);
+  writeLocalArchivedIds(ids);
+}
+
+export function getTournamentCancellationTime(t: Tournament): Date | null {
+  if (t.status !== 'CANCELLED') return null;
+  const raw = t.cancelledAt || t.updatedAt || t.createdAt;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** True when CANCELLED and past the 3-day grace period, or explicitly archived. */
+export function isTournamentArchived(t: Tournament): boolean {
+  if (t.status !== 'CANCELLED') return false;
+  if (t.archivedAt) return true;
+  if (typeof window !== 'undefined' && readLocalArchivedIds().has(t.id)) return true;
+  const when = getTournamentCancellationTime(t);
+  if (!when) return false;
+  return Date.now() - when.getTime() >= ARCHIVE_AFTER_MS;
+}
+
+/** Days left before a cancelled tournament moves to Archived (0 if already archived). */
+export function getTournamentArchiveDaysRemaining(t: Tournament): number | null {
+  if (t.status !== 'CANCELLED') return null;
+  if (t.archivedAt || (typeof window !== 'undefined' && readLocalArchivedIds().has(t.id))) return 0;
+  const when = getTournamentCancellationTime(t);
+  if (!when) return null;
+  const remainingMs = ARCHIVE_AFTER_MS - (Date.now() - when.getTime());
+  if (remainingMs <= 0) return 0;
+  return Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+}
+
+async function updateTournamentSafe(
+  id: string,
+  payload: Record<string, unknown>,
+  optionalKeys: string[] = []
+): Promise<void> {
+  let attempt = { ...payload };
+  for (let i = 0; i <= optionalKeys.length; i++) {
+    const { error } = await supabase.from('tournaments').update(attempt).eq('id', id);
+    if (!error) return;
+
+    const missingKey = optionalKeys.find(
+      (key) => attempt[key] !== undefined && new RegExp(key, 'i').test(error.message || '')
+    );
+    if (!missingKey) throw error;
+    const { [missingKey]: _omit, ...rest } = attempt;
+    attempt = rest;
+  }
+}
+
+async function markTournamentCancelled(
+  id: string,
+  extra: Record<string, unknown> = {}
+): Promise<void> {
+  const now = new Date().toISOString();
+  clearTournamentArchivedLocally(id);
+  await updateTournamentSafe(
+    id,
+    {
+      status: 'CANCELLED',
+      updated_at: now,
+      cancelled_at: now,
+      archived_at: null,
+      ...extra,
+    },
+    ['cancelled_at', 'archived_at', 'updated_at']
+  );
+}
 
 export async function approveTournament(id: string): Promise<void> {
   const { error } = await supabase
@@ -332,11 +529,29 @@ export async function approveTournament(id: string): Promise<void> {
 }
 
 export async function rejectTournament(id: string): Promise<void> {
-  const { error } = await supabase
-    .from('tournaments')
-    .update({ is_approved: false, status: 'CANCELLED' })
-    .eq('id', id);
-  if (error) throw error;
+  await markTournamentCancelled(id, { is_approved: false });
+}
+
+/** Soft-terminate: cancel the event so it archives after 3 days (no hard delete). */
+export async function terminateTournament(id: string): Promise<void> {
+  await markTournamentCancelled(id);
+}
+
+/** Skip the grace period — move a cancelled tournament into Archived now. */
+export async function archiveTournamentImmediately(id: string): Promise<void> {
+  const now = new Date().toISOString();
+  // Always mark locally so the card moves even if DB lacks archived_at / resets updated_at
+  markTournamentArchivedLocally(id);
+  await updateTournamentSafe(
+    id,
+    {
+      status: 'CANCELLED',
+      archived_at: now,
+      cancelled_at: now,
+      updated_at: now,
+    },
+    ['cancelled_at', 'archived_at', 'updated_at']
+  );
 }
 
 export async function featureTournament(id: string, featured: boolean): Promise<void> {
@@ -369,20 +584,55 @@ export async function postAnnouncement(id: string, message: string): Promise<voi
 // ════════════════════════════════════════════════════════════════
 
 export async function fetchRegistrations(tournamentId: string): Promise<TournamentRegistration[]> {
-  console.log('[Service] fetchRegistrations (confirmed only):', { tournamentId });
+  console.log('[Service] fetchRegistrations (confirmed + pending + waitlisted):', { tournamentId });
   const { data, error } = await supabase
     .from('tournament_registrations')
     .select('*, profiles:player_id(id, full_name, avatar_url)')
     .eq('tournament_id', tournamentId)
-    .eq('status', 'confirmed')
+    .in('status', ['confirmed', 'pending', 'waitlisted'])
     .order('registered_at', { ascending: true });
-
   if (error) {
     console.error('[Service] fetchRegistrations error:', error);
     throw error;
   }
-  console.log('[Service] fetchRegistrations result:', data?.length, 'confirmed registrations');
+  console.log('[Service] fetchRegistrations result:', data?.length, 'registrations');
   return (data ?? []).map(mapRegistration);
+}
+
+/** Open / no-upload tournaments skip organizer review and confirm immediately. */
+function shouldAutoConfirmRegistration(tournament: Tournament): boolean {
+  const rules = tournament.rules?.trim();
+  if (rules?.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(rules) as {
+        registrationRequirements?: {
+          requireValidId?: boolean;
+          requireProofOfResidency?: boolean;
+          requirePaymentReceipt?: boolean;
+        };
+      };
+      const reqs = parsed?.registrationRequirements;
+      if (reqs && typeof reqs === 'object') {
+        return !(
+          reqs.requireValidId ||
+          reqs.requireProofOfResidency ||
+          reqs.requirePaymentReceipt
+        );
+      }
+    } catch {
+      // fall through
+    }
+  }
+  return tournament.tournamentMode === 'casual';
+}
+
+function resolveInitialRegistrationStatus(
+  tournament: Tournament,
+  isWaitlist: boolean,
+): 'pending' | 'confirmed' | 'waitlisted' {
+  if (isWaitlist) return 'waitlisted';
+  if (shouldAutoConfirmRegistration(tournament)) return 'confirmed';
+  return 'pending';
 }
 
 export async function registerPlayer(
@@ -419,16 +669,18 @@ export async function registerPlayer(
     // If RPC is unavailable, proceed without blocking here; UI already guards
     if (e instanceof Error && e.message) throw e;
   }
+  const status = resolveInitialRegistrationStatus(tournament, false);
+  const now = new Date().toISOString();
   const { error } = await supabase
     .from('tournament_registrations')
     .upsert(
       { 
         tournament_id: tournamentId, 
         player_id: playerId, 
-        status: 'pending',
-        registered_at: new Date().toISOString(),
-        approved_by: null,
-        approved_at: null,
+        status,
+        registered_at: now,
+        approved_by: status === 'confirmed' ? playerId : null,
+        approved_at: status === 'confirmed' ? now : null,
         application_message: applicationMessage || null
       },
       { 
@@ -444,12 +696,26 @@ export async function registerPlayer(
 }
 
 export async function withdrawRegistration(tournamentId: string, playerId: string): Promise<void> {
-  const { error } = await supabase
+  // Soft-remove first (works better under organizer/admin RLS than hard delete)
+  const { data: updated, error: updateError } = await supabase
+    .from('tournament_registrations')
+    .update({ status: 'withdrawn' })
+    .eq('tournament_id', tournamentId)
+    .eq('player_id', playerId)
+    .select('id');
+
+  if (!updateError && updated && updated.length > 0) return;
+
+  const { data: deleted, error: deleteError } = await supabase
     .from('tournament_registrations')
     .delete()
     .eq('tournament_id', tournamentId)
-    .eq('player_id', playerId);
-  if (error) throw error;
+    .eq('player_id', playerId)
+    .select('id');
+
+  if (!deleteError && deleted && deleted.length > 0) return;
+
+  throw updateError || deleteError || new Error('Could not remove this player. You may not have permission.');
 }
 
 export async function getPlayerRegistration(

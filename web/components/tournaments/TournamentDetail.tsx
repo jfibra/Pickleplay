@@ -18,6 +18,7 @@ import TournamentBracket from './TournamentBracket';
 import PlayerApprovalCard from './PlayerApprovalCard';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import Toast, { ToastType } from '../ui/Toast';
+import TournamentRulesPanel from './TournamentRulesPanel';
 
 interface Props {
   tournamentId: string;
@@ -155,7 +156,7 @@ const TournamentDetail: React.FC<Props> = ({ tournamentId, isOpen, onClose, isOw
         setIsRegistered(!!hasActiveRegistration);
         setRegistrationStatus(reg?.status || null);
         // Load user's squads if squad registration is enabled
-        if (t?.registrationMode === 'squad' || t?.registrationMode === 'both') {
+        if (t?.registrationMode === 'squad') {
           const squads = await squadsService.getUserSquads(userId);
           setUserSquads(squads);
           if (squads.length > 0) setSelectedSquadId(squads[0].id);
@@ -334,6 +335,7 @@ const TournamentDetail: React.FC<Props> = ({ tournamentId, isOpen, onClose, isOw
   ];
 
   const isFull = tournament ? (tournament.registeredCount || 0) >= (tournament.maxPlayers || 0) : false;
+  const isPast = tournament?.status === 'COMPLETED' || tournament?.status === 'CANCELLED';
   const regMode = tournament?.registrationMode || 'player';
   const isSquadOnly = regMode === 'squad';
   const isSquadMode = regMode === 'squad' || regMode === 'both';
@@ -529,9 +531,9 @@ const TournamentDetail: React.FC<Props> = ({ tournamentId, isOpen, onClose, isOw
                   {/* Rules */}
                   {tournament.rules && (
                     <div>
-                      <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Rules</h3>
-                      <div className="bg-slate-50 rounded-2xl p-4">
-                        <p className="text-sm text-slate-600 whitespace-pre-line">{tournament.rules}</p>
+                      <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Rules & Divisions</h3>
+                      <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                        <TournamentRulesPanel rules={tournament.rules} announcement={tournament.announcement} />
                       </div>
                     </div>
                   )}

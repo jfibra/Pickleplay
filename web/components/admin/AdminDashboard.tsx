@@ -1,6 +1,7 @@
 ﻿
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   Shield,
   Activity,
@@ -43,12 +44,35 @@ import {
   CheckCircle2,
   XCircle,
   Star,
-  Users
+  Users,
+  Building2,
+  UserCog,
+  RefreshCw,
+  Share2,
 } from 'lucide-react';
 import QRCodeGenerator from '../QRCodeGenerator';
-import AdminTournamentDetail from './AdminTournamentDetail';
 import AdminVerificationPanel from './AdminVerificationPanel.tsx';
 import AdminIDTrainingPanel from './AdminIDTrainingPanel';
+import AdminCourtsAnalytics from './AdminCourtsAnalytics';
+import AdminCourtManagersAnalytics from './AdminCourtManagersAnalytics';
+import AdminKpiHub, {
+  HubPreviewBanner,
+  HubPreviewList,
+  HubPreviewProgress,
+  HubPreviewStats,
+  HubPreviewUsers,
+  type AdminHubQueue,
+} from './AdminKpiHub';
+import {
+  CreateTournamentForm,
+  ELIGIBILITY_OPTIONS,
+  type CreateTournamentSubmitResult,
+} from './create-tournament';
+import {
+  buildTournamentExtras,
+  serializeTournamentExtras,
+  tournamentPublicUrl,
+} from '../tournaments/tournamentExtras';
 import ConfirmDialog from '../ui/ConfirmDialog';
 import {
   BarChart,
@@ -58,14 +82,34 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Cell
+  Cell,
+  PieChart,
+  Pie,
 } from 'recharts';
 import { supabase } from '../../services/supabase';
 import { ProfessionalApplication, Tournament } from '../../types';
 // Fix: Import UserRole from the centralized types.ts file.
 import { UserRole } from '../../types';
 import { INITIAL_TOURNAMENTS } from '../../data/mockData';
-import { approveTournament, rejectTournament, featureTournament, mapTournament } from '../../services/tournaments';
+import {
+  approveTournament,
+  rejectTournament,
+  featureTournament,
+  mapTournament,
+  createTournament,
+  terminateTournament,
+  isTournamentArchived,
+  getTournamentArchiveDaysRemaining,
+  TOURNAMENT_ARCHIVE_AFTER_DAYS,
+  archiveTournamentImmediately,
+} from '../../services/tournaments';
+import {
+  fetchPlatformOverview,
+  fetchUserAnalytics,
+  fetchAdminUsersPage,
+  type PlatformOverviewMetrics,
+  type UserAnalytics,
+} from '../../services/adminAnalytics';
 import {
   getMaintenanceStatus,
   updateMaintenanceStatus,
@@ -81,15 +125,8 @@ import {
   type FeatureAccess,
 } from '../../services/maintenance';
 
-const GROWTH_DATA = [
-  { name: 'Mon', active: 120 },
-  { name: 'Tue', active: 150 },
-  { name: 'Wed', active: 180 },
-  { name: 'Thu', active: 140 },
-  { name: 'Fri', active: 210 },
-  { name: 'Sat', active: 350 },
-  { name: 'Sun', active: 310 },
-];
+const ROLE_PIE_COLORS = ['#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#f43f5e', '#94a3b8'];
+const USER_PAGE_SIZE = 100;
 
 interface PlatformUser {
   id: string;
@@ -102,59 +139,65 @@ interface PlatformUser {
   avatarUrl?: string;
 }
 
-const MOCK_USERS: PlatformUser[] = [
-  { id: 'u1', name: 'David Smith', subtitle: 'david@pickleplay.com', role: 'PLAYER', status: 'Active', joinedDate: '2025-01-12', dupr: 5.12 },
-  { id: 'u2', name: 'Marcus Chen', subtitle: 'marcus@procoach.me', role: 'COACH', status: 'Active', joinedDate: '2025-02-01', dupr: 4.85 },
-];
-
-const resolveUserDisplayName = (profile: {
-  full_name?: string | null;
-  username?: string | null;
-  email?: string | null;
-  id: string;
-}) => {
-  const trimmedFullName = profile.full_name?.trim();
-  if (trimmedFullName) return trimmedFullName;
-
-  const trimmedUsername = profile.username?.trim();
-  if (trimmedUsername) return trimmedUsername;
-
-  const trimmedEmail = profile.email?.trim();
-  if (trimmedEmail) return trimmedEmail.split('@')[0];
-
-  return `User ${profile.id.slice(0, 8)}`;
-};
-
-const resolveUserSubtitle = (profile: {
-  username?: string | null;
-  email?: string | null;
-  id: string;
-}) => {
-  const trimmedEmail = profile.email?.trim();
-  if (trimmedEmail) return trimmedEmail;
-
-  const trimmedUsername = profile.username?.trim();
-  if (trimmedUsername) return `@${trimmedUsername}`;
-
-  return `ID: ${profile.id.slice(0, 8)}`;
-};
-
 interface AdminDashboardProps {
   applications?: ProfessionalApplication[];
   onApprove?: (id: string) => void;
   onReject?: (id: string) => void;
   currentAdminRole?: UserRole;
-  initialTab?: AdminTab;
 }
 
-type AdminTab = 'overview' | 'applications' | 'users' | 'tournaments' | 'security' | 'staff' | 'audit' | 'codes' | 'qr-codes' | 'terms' | 'maintenance' | 'verifications' | 'id-training';
+type AdminSection =
+  | 'overview'
+  | 'applications'
+  | 'users'
+  | 'tournaments'
+  | 'security'
+  | 'audit'
+  | 'codes'
+  | 'qr-codes'
+  | 'terms'
+  | 'maintenance'
+  | 'verifications'
+  | 'id-training'
+  | 'courts'
+  | 'court-managers';
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onApprove, onReject, currentAdminRole = 'ADMIN', initialTab }) => {
-  const [activeTab, setActiveTab] = useState<AdminTab>(initialTab || 'overview');
+type AdminTab = 'hub' | AdminSection;
+
+const ADMIN_SECTIONS = new Set<string>([
+  'overview',
+  'applications',
+  'users',
+  'tournaments',
+  'security',
+  'audit',
+  'codes',
+  'qr-codes',
+  'terms',
+  'maintenance',
+  'verifications',
+  'id-training',
+  'courts',
+  'court-managers',
+]);
+
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onApprove, onReject, currentAdminRole = 'ADMIN' }) => {
+  const navigate = useNavigate();
+  const { section: sectionParam } = useParams<{ section?: string }>();
+  const activeTab: AdminTab =
+    sectionParam && ADMIN_SECTIONS.has(sectionParam) ? (sectionParam as AdminSection) : 'hub';
+
   const [userSearch, setUserSearch] = useState('');
-  const [userList, setUserList] = useState<PlatformUser[]>(MOCK_USERS);
+  const [userRoleFilter, setUserRoleFilter] = useState<UserRole | 'all'>('all');
+  const [userList, setUserList] = useState<PlatformUser[]>([]);
+  const [usersHasMore, setUsersHasMore] = useState(false);
+  const [usersLoadingMore, setUsersLoadingMore] = useState(false);
+  const [userAnalytics, setUserAnalytics] = useState<UserAnalytics | null>(null);
+  const [overviewMetrics, setOverviewMetrics] = useState<PlatformOverviewMetrics | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [showTournamentModal, setShowTournamentModal] = useState(false);
+  const [showCreateTournamentWizard, setShowCreateTournamentWizard] = useState(false);
   const [newTournament, setNewTournament] = useState<Omit<Tournament, 'id' | 'registeredCount'>>({
     name: '',
     date: '',
@@ -166,11 +209,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
   });
   const [isCreating, setIsCreating] = useState(false);
   const [editingTournamentId, setEditingTournamentId] = useState<string | null>(null);
-  const [adminTournamentFilter, setAdminTournamentFilter] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'featured'>('all');
-  const [viewTournamentId, setViewTournamentId] = useState<string | null>(null);
-  const [showAdminDetailModal, setShowAdminDetailModal] = useState(false);
+  const [adminTournamentFilter, setAdminTournamentFilter] = useState<'all' | 'pending' | 'approved' | 'rejected' | 'featured' | 'archived'>('all');
 
-  const [totalUsers, setTotalUsers] = useState<number>(0);
   const [securityLogs, setSecurityLogs] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [platformSettings, setPlatformSettings] = useState<Record<string, any>>({});
@@ -197,44 +237,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
     variant: 'warning' | 'danger' | 'info';
   }>({ isOpen: false, title: '', message: '', onConfirm: () => {}, variant: 'warning' });
 
-  // Tabs horizontal scroll controls
-  const tabsRef = useRef<HTMLDivElement>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
-
-  const updateTabScrollState = () => {
-    const el = tabsRef.current;
-    if (!el) return;
-    const maxScrollLeft = el.scrollWidth - el.clientWidth;
-    setCanScrollLeft(el.scrollLeft > 2);
-    setCanScrollRight(maxScrollLeft > 2 && el.scrollLeft < maxScrollLeft - 2);
-  };
-
-  useEffect(() => {
-    // Use RAF so measurement happens after the browser has finished layout/paint
-    const raf = requestAnimationFrame(() => updateTabScrollState());
-    const el = tabsRef.current;
-    if (!el) return;
-
-    el.addEventListener('scroll', updateTabScrollState, { passive: true });
-
-    // ResizeObserver re-checks whenever the container or its children resize
-    const ro = new ResizeObserver(() => requestAnimationFrame(() => updateTabScrollState()));
-    ro.observe(el);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      el.removeEventListener('scroll', updateTabScrollState);
-      ro.disconnect();
-    };
-  }, []);
-
-  const scrollTabsBy = (delta: number) => {
-    const el = tabsRef.current;
-    if (!el) return;
-    el.scrollBy({ left: delta, behavior: 'smooth' });
-  };
-
   // Confirm dialog helpers
   const showConfirm = (title: string, message: string, onConfirm: () => void, variant: 'warning' | 'danger' | 'info' = 'warning') => {
     setConfirmDialog({ isOpen: true, title, message, onConfirm, variant });
@@ -260,32 +262,36 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
     });
   }, [currentAdminRole]);
 
+  useEffect(() => {
+    if (sectionParam && !ADMIN_SECTIONS.has(sectionParam)) {
+      navigate('/admin', { replace: true });
+    }
+  }, [sectionParam, navigate]);
+
+  useEffect(() => {
+    if (currentAdminRole === 'ADMIN' && activeTab === 'users') {
+      loadUsersPage(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userRoleFilter, activeTab]);
+
   const fetchAdminData = async () => {
-    // 1. Fetch Total Users Count
-    const { count } = await supabase
-      .from('profiles')
-      .select('*', { count: 'exact', head: true });
-    if (count !== null) setTotalUsers(count);
+    setOverviewLoading(true);
+    try {
+      const [overview, usersPage, analytics] = await Promise.all([
+        fetchPlatformOverview(),
+        fetchAdminUsersPage({ offset: 0, limit: USER_PAGE_SIZE, roleFilter: userRoleFilter }),
+        fetchUserAnalytics(),
+      ]);
 
-    // 2. Fetch Users List
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, full_name, username, email, active_role, created_at, account_status, avatar_url')
-      .order('created_at', { ascending: false })
-      .limit(50);
-
-    if (profiles) {
-      const mappedUsers: PlatformUser[] = profiles.map(p => ({
-        id: p.id,
-        name: resolveUserDisplayName(p),
-        subtitle: resolveUserSubtitle(p),
-        role: p.active_role as UserRole,
-        status: (p.account_status as any) || 'Active',
-        joinedDate: p.created_at?.split('T')[0] || '',
-        dupr: 0, // Placeholder
-        avatarUrl: p.avatar_url
-      }));
-      setUserList(mappedUsers);
+      setOverviewMetrics(overview);
+      setUserList(usersPage.users);
+      setUsersHasMore(usersPage.hasMore);
+      setUserAnalytics(analytics);
+    } catch (err) {
+      console.error('Failed to load admin analytics:', err);
+    } finally {
+      setOverviewLoading(false);
     }
 
     // 3. Fetch Logs
@@ -319,6 +325,27 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
       .select('*')
       .order('created_at', { ascending: false });
     if (codes) setAccessCodes(codes);
+  };
+
+  const loadUsersPage = async (reset = true) => {
+    try {
+      if (reset) setUsersLoadingMore(true);
+      else setUsersLoadingMore(true);
+
+      const offset = reset ? 0 : userList.length;
+      const { users, hasMore } = await fetchAdminUsersPage({
+        offset,
+        limit: USER_PAGE_SIZE,
+        roleFilter: userRoleFilter,
+      });
+
+      setUserList((prev) => (reset ? users : [...prev, ...users]));
+      setUsersHasMore(hasMore);
+    } catch (err) {
+      console.error('Failed to load users:', err);
+    } finally {
+      setUsersLoadingMore(false);
+    }
   };
 
   const handleGenerateCode = async () => {
@@ -493,7 +520,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
   const handleAdminReject = async (id: string) => {
     showConfirm(
       'Reject Tournament?',
-      'This will permanently reject this tournament submission. The tournament organizer will need to resubmit if they want to proceed. This action cannot be undone.',
+      `This rejects the submission and cancels the event. It stays in Rejected for ${TOURNAMENT_ARCHIVE_AFTER_DAYS} days, then moves to Archived.`,
       async () => {
         try {
           await rejectTournament(id);
@@ -507,6 +534,31 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
     );
   };
 
+  const handleAdminArchiveNow = async (id: string, name: string) => {
+    showConfirm(
+      'Archive Immediately?',
+      `Move "${name}" to Archived now and skip the ${TOURNAMENT_ARCHIVE_AFTER_DAYS}-day grace period.`,
+      async () => {
+        try {
+          await archiveTournamentImmediately(id);
+          await logAdminAction('TOURNAMENT_ARCHIVE', id, name, 'Archived immediately');
+          // Stay on current filter — card disappears from Rejected/All and is only under Archived
+          setTournaments((prev) =>
+            prev.map((t) =>
+              t.id === id
+                ? { ...t, status: 'CANCELLED', archivedAt: new Date().toISOString() }
+                : t
+            )
+          );
+        } catch (err) {
+          console.error('Archive failed:', err);
+          alert('Failed to archive tournament');
+        }
+      },
+      'warning'
+    );
+  };
+
   const handleAdminFeature = async (id: string, featured: boolean) => {
     try {
       await featureTournament(id, featured);
@@ -517,18 +569,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
     }
   };
 
-  const openAdminDetailModal = (id: string) => {
-    setViewTournamentId(id);
-    setShowAdminDetailModal(true);
-  };
-
-  const closeAdminDetailModal = () => {
-    setShowAdminDetailModal(false);
-    setViewTournamentId(null);
-  };
-
-  const handleAdminDetailActionComplete = () => {
-    loadTournaments();
+  const openAdminDetailPage = (id: string) => {
+    navigate(`/admin/tournaments/${id}`);
   };
 
   const openEditModal = (t: Tournament) => {
@@ -543,6 +585,59 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
     });
     setEditingTournamentId(t.id);
     setShowTournamentModal(true);
+  };
+
+  const handleCreateTournamentWizardSubmit = async ({
+    payload,
+    files,
+  }: CreateTournamentSubmitResult) => {
+    const primary = payload.divisions[0];
+    const totalCap = payload.divisions.reduce((sum, d) => sum + d.maxTeams, 0);
+    const eligibilityLabel =
+      ELIGIBILITY_OPTIONS.find((o) => o.value === payload.eligibility)?.label ?? payload.eligibility;
+
+    const created = await createTournament({
+      name: payload.name,
+      location: payload.location,
+      date: new Date(`${payload.startDate}T08:00:00+08:00`).toISOString(),
+      // Keep registration open until the tournament start day (not forced closed early)
+      registrationDeadline: new Date(`${payload.startDate}T23:59:59+08:00`).toISOString(),
+      maxPlayers: totalCap,
+      format: primary?.format ?? 'single_elim',
+      skillLevel: eligibilityLabel,
+      imageFile: files.banner || undefined,
+      eventType: 'doubles',
+      category: 'open',
+      rules: serializeTournamentExtras(buildTournamentExtras(payload)),
+      description: `${eligibilityLabel} · ${payload.divisions.length} division${payload.divisions.length === 1 ? '' : 's'} · ends ${payload.endDate}`,
+      prizePool: '',
+      tournamentMode: 'competitive',
+    });
+
+    await approveTournament(created.id);
+    const liveTournament = { ...created, isApproved: true as const };
+    await logAdminAction('TOURNAMENT_DEPLOY', created.id, created.name, 'Admin multi-step create');
+    setTournaments((prev) => [liveTournament, ...prev.filter((t) => t.id !== created.id)]);
+    // Keep wizard open so success/share UI can render
+    return { id: created.id, name: created.name };
+  };
+
+  const copyTournamentShareLink = async (tournamentId: string) => {
+    const url = tournamentPublicUrl(tournamentId);
+    try {
+      await navigator.clipboard.writeText(url);
+      // lightweight inline feedback without window.alert
+      const btn = document.getElementById(`share-${tournamentId}`);
+      if (btn) {
+        const prev = btn.textContent;
+        btn.textContent = 'Link copied';
+        window.setTimeout(() => {
+          if (btn) btn.textContent = prev || 'Share';
+        }, 1600);
+      }
+    } catch {
+      window.prompt('Copy this player join link:', url);
+    }
   };
 
   const handleSaveTournament = async (e: React.FormEvent) => {
@@ -641,26 +736,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
   const handleDeleteTournament = async () => {
     if (!editingTournamentId) return;
     showConfirm(
-      'Delete Tournament?',
-      'This will permanently delete this tournament and all associated data including registrations, brackets, and results. This action cannot be undone.',
+      'Terminate Tournament?',
+      `This cancels the event. It remains visible for ${TOURNAMENT_ARCHIVE_AFTER_DAYS} days, then moves to Archived. Registrations are kept for audit.`,
       async () => {
         setIsCreating(true);
         try {
-          const { error } = await supabase
-            .from('tournaments')
-            .delete()
-            .eq('id', editingTournamentId);
-
-          if (error) throw error;
-
-          setTournaments(prev => prev.filter(t => t.id !== editingTournamentId));
-          await logAdminAction('TOURNAMENT_DELETE', editingTournamentId, 'Tournament', 'Event terminated');
+          await terminateTournament(editingTournamentId);
+          await logAdminAction('TOURNAMENT_TERMINATE', editingTournamentId, 'Tournament', 'Event terminated');
           setShowTournamentModal(false);
           setEditingTournamentId(null);
-          alert('Tournament deleted successfully.');
+          loadTournaments();
+          alert('Event terminated. It will move to Archived after 3 days.');
         } catch (err: any) {
-          console.error('Delete failed:', err);
-          alert('Failed to delete tournament.');
+          console.error('Terminate failed:', err);
+          alert('Failed to terminate tournament.');
         } finally {
           setIsCreating(false);
         }
@@ -670,138 +759,442 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
   };
 
   const pendingApps = applications.filter(a => a.status === 'PENDING');
+  const pendingTournaments = tournaments.filter(
+    (t) => t.isApproved !== true && t.status !== 'CANCELLED'
+  ).length;
 
   const filteredUsers = userList.filter(u =>
     u.name.toLowerCase().includes(userSearch.toLowerCase()) ||
     u.subtitle.toLowerCase().includes(userSearch.toLowerCase())
   );
 
+  const growthChangeLabel =
+    overviewMetrics?.usersChangePct != null
+      ? `${overviewMetrics.usersChangePct >= 0 ? '+' : ''}${overviewMetrics.usersChangePct}%`
+      : '—';
+
+  const hubQueues: AdminHubQueue[] = [
+    {
+      id: 'overview',
+      kind: 'analytics',
+      kindLabel: 'Analytics',
+      title: 'Platform Overview',
+      description: 'Live users, active sessions, courts, and 30-day booking GMV across the platform.',
+      pending: 0,
+      preview: (
+        <HubPreviewStats
+          items={[
+            { label: 'Users', value: (overviewMetrics?.totalUsers ?? 0).toLocaleString() },
+            { label: 'Active 24h', value: (overviewMetrics?.activeUsers24h ?? 0).toLocaleString() },
+            { label: 'Courts', value: (overviewMetrics?.totalCourts ?? 0).toLocaleString() },
+            { label: '30d GMV', value: `₱${Math.round(overviewMetrics?.gmv30d ?? 0).toLocaleString()}` },
+          ]}
+        />
+      ),
+    },
+    {
+      id: 'applications',
+      kind: 'approvals',
+      kindLabel: 'People',
+      title: 'Review Applications',
+      description: 'Approve or reject professional upgrades for coaches and court owners.',
+      pending: pendingApps.length,
+      preview: (
+        <HubPreviewList
+          rows={
+            pendingApps.length > 0
+              ? pendingApps.slice(0, 3).map((a) => ({
+                  label: a.playerName || a.requestedRole || 'Application',
+                  tone: 'bg-amber-500',
+                }))
+              : [{ label: 'No pending applications', tone: 'bg-slate-300' }]
+          }
+        />
+      ),
+    },
+    {
+      id: 'verifications',
+      kind: 'approvals',
+      kindLabel: 'Offices',
+      title: 'Court Owner Verifications',
+      description: 'Review KYC submissions and identity documents for court owner accounts.',
+      pending: overviewMetrics?.pendingVerifications ?? 0,
+      preview: (
+        <HubPreviewProgress
+          pct={
+            (overviewMetrics?.pendingVerifications ?? 0) > 0
+              ? Math.min(100, (overviewMetrics?.pendingVerifications ?? 0) * 12)
+              : 100
+          }
+          label={(overviewMetrics?.pendingVerifications ?? 0) > 0 ? 'Queue load' : 'Queue clear'}
+        />
+      ),
+    },
+    {
+      id: 'tournaments',
+      kind: 'approvals',
+      kindLabel: 'Listings',
+      title: 'Tournament Approvals',
+      description: 'Create events, then approve, feature, and manage tournaments across all venues.',
+      pending: pendingTournaments,
+      preview: (
+        <HubPreviewBanner
+          title="Tournaments"
+          subtitle={`${tournaments.length} events · ${pendingTournaments} awaiting review`}
+        />
+      ),
+    },
+    {
+      id: 'users',
+      kind: 'people',
+      kindLabel: 'People',
+      title: 'User Analytics',
+      description: 'Role breakdown, signup growth, promote/demote, and account status controls.',
+      pending: 0,
+      preview: (
+        <HubPreviewUsers
+          total={overviewMetrics?.totalUsers ?? 0}
+          active={overviewMetrics?.activeUsers24h ?? 0}
+        />
+      ),
+    },
+    {
+      id: 'courts',
+      kind: 'analytics',
+      kindLabel: 'Analytics',
+      title: 'Courts Analytics',
+      description: 'Platform-wide court inventory, booking volume, utilization, and top venues by revenue.',
+      pending: 0,
+      preview: (
+        <HubPreviewStats
+          items={[
+            { label: 'Courts', value: (overviewMetrics?.totalCourts ?? 0).toLocaleString() },
+            { label: '30d Bookings', value: (overviewMetrics?.bookings30d ?? 0).toLocaleString() },
+            { label: 'GMV', value: `₱${Math.round(overviewMetrics?.gmv30d ?? 0).toLocaleString()}` },
+            { label: 'Status', value: 'Live' },
+          ]}
+        />
+      ),
+    },
+    {
+      id: 'court-managers',
+      kind: 'people',
+      kindLabel: 'People',
+      title: 'Court Manager Analytics',
+      description: 'Active managers, pending invites, and courts with or without coverage.',
+      pending: overviewMetrics?.pendingManagers ?? 0,
+      preview: (
+        <HubPreviewList
+          rows={[
+            { label: `${overviewMetrics?.pendingManagers ?? 0} pending invites`, tone: 'bg-amber-500' },
+            { label: 'Coverage & assignments', tone: 'bg-blue-500' },
+            { label: 'Open manager registry', tone: 'bg-emerald-500' },
+          ]}
+        />
+      ),
+    },
+    {
+      id: 'id-training',
+      kind: 'operations',
+      kindLabel: 'Operations',
+      title: 'ID Training',
+      description: 'Train and test the ID verification model with labeled document datasets.',
+      pending: 0,
+      preview: <HubPreviewBanner title="ML Pipeline" subtitle="Document training & prediction tests" />,
+    },
+    {
+      id: 'security',
+      kind: 'operations',
+      kindLabel: 'Operations',
+      title: 'Security Controls',
+      description: 'Platform authentication policies, restricted access, and security event feed.',
+      pending: 0,
+      preview: (
+        <HubPreviewList
+          rows={
+            securityLogs.length > 0
+              ? securityLogs.slice(0, 3).map((l) => ({
+                  label: l.action || l.message || 'Security event',
+                  tone: 'bg-rose-500',
+                }))
+              : [{ label: 'No recent security events', tone: 'bg-slate-300' }]
+          }
+        />
+      ),
+    },
+    {
+      id: 'codes',
+      kind: 'operations',
+      kindLabel: 'Operations',
+      title: 'Access Codes',
+      description: 'Generate and revoke utility codes for court owner role upgrades.',
+      pending: 0,
+      preview: (
+        <HubPreviewStats
+          items={[
+            { label: 'Codes', value: String(accessCodes.length) },
+            { label: 'Role', value: 'Owner' },
+            { label: 'Status', value: 'Ready' },
+            { label: 'Action', value: 'Issue' },
+          ]}
+        />
+      ),
+    },
+    {
+      id: 'qr-codes',
+      kind: 'operations',
+      kindLabel: 'Operations',
+      title: 'QR Codes',
+      description: 'Generate printable QR codes for courts, events, and check-in flows.',
+      pending: 0,
+      preview: <HubPreviewBanner title="QR Toolkit" subtitle="Printable codes for venues & events" />,
+    },
+    {
+      id: 'audit',
+      kind: 'operations',
+      kindLabel: 'Operations',
+      title: 'Audit Log',
+      description: 'Immutable record of administrative actions across the platform.',
+      pending: 0,
+      preview: (
+        <HubPreviewList
+          rows={
+            auditLogs.length > 0
+              ? auditLogs.slice(0, 3).map((l) => ({
+                  label: l.action || 'Audit entry',
+                  tone: 'bg-slate-500',
+                }))
+              : [{ label: 'No audit entries', tone: 'bg-slate-300' }]
+          }
+        />
+      ),
+    },
+    {
+      id: 'terms',
+      kind: 'content',
+      kindLabel: 'Content',
+      title: 'Terms & Policies',
+      description: 'Edit platform terms, privacy policy, and legal content pages.',
+      pending: 0,
+      preview: <HubPreviewBanner title="Legal" subtitle="Terms, privacy & platform content" />,
+    },
+    {
+      id: 'maintenance',
+      kind: 'content',
+      kindLabel: 'Content',
+      title: 'Website & Features',
+      description: 'Maintenance mode, soft launch, and role-based feature access matrix.',
+      pending: maintenanceEnabled ? 1 : 0,
+      preview: (
+        <HubPreviewProgress
+          pct={maintenanceEnabled ? 100 : softLaunchEnabled ? 50 : 0}
+          label={maintenanceEnabled ? 'Maintenance on' : softLaunchEnabled ? 'Soft launch' : 'Site live'}
+        />
+      ),
+    },
+    {
+      id: 'achievements',
+      kind: 'content',
+      kindLabel: 'Content',
+      title: 'Manage Achievements',
+      description: 'Create and configure player achievements, badges, and unlock criteria.',
+      pending: 0,
+      preview: <HubPreviewBanner title="Achievements" subtitle="Badges, rewards & unlock rules" />,
+    },
+  ];
+
+  const openHubQueue = (id: string) => {
+    navigate(`/admin/${id}`);
+  };
+
+  const goToHub = () => {
+    navigate('/admin');
+  };
+
+  const goToSection = (id: AdminSection) => {
+    navigate(`/admin/${id}`);
+  };
+
+  const sectionTitle =
+    hubQueues.find((q) => q.id === activeTab)?.title ||
+    (activeTab === 'hub' ? 'Admin Console' : 'Admin Console');
+
   return (
     <>
       <div className="space-y-8 animate-fade-in pb-20 w-full overflow-hidden">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 w-full">
-          <div className="flex items-center gap-6 shrink-0">
-            <div className="p-4 rounded-[24px] text-white shadow-xl bg-blue-600 shadow-blue-900/10 flex-shrink-0">
-              <Shield size={32} />
-            </div>
-            <div>
-              <h1 className="text-4xl font-black text-slate-900 tracking-tighter uppercase leading-none">
-                Admin Console
-              </h1>
-              <p className="text-slate-500 font-medium mt-2 text-sm">
-                Regional community moderation and operational oversight.
-              </p>
-            </div>
-          </div>
-
-          {/* â”€â”€ Tab nav pill with scroll arrows â”€â”€ */}
-          <div className="flex items-center bg-white border border-slate-200 shadow-md rounded-[28px] p-1.5 gap-1 min-w-0">
-            {/* Left arrow */}
-            <button
-              type="button"
-              aria-label="Scroll tabs left"
-              onClick={() => scrollTabsBy(-200)}
-              className={`shrink-0 w-10 h-10 rounded-2xl flex items-center justify-center transition-all duration-200
-                ${canScrollLeft
-                  ? 'bg-slate-950 text-white hover:bg-black shadow-lg shadow-slate-400/40 cursor-pointer hover:scale-105 active:scale-95'
-                  : 'bg-slate-200 text-slate-400 opacity-40 cursor-default'}`}
-            >
-              <ChevronLeft size={18} strokeWidth={3} />
-            </button>
-
-            {/* Scrollable tabs */}
-            <div className="relative flex-1 min-w-0 overflow-hidden">
-              {/* Left fade hint */}
-              <div className={`pointer-events-none absolute left-0 inset-y-0 w-10 z-10 bg-gradient-to-r from-white to-transparent transition-opacity duration-300 ${canScrollLeft ? 'opacity-100' : 'opacity-0'}`} />
-              {/* Right fade hint */}
-              <div className={`pointer-events-none absolute right-0 inset-y-0 w-10 z-10 bg-gradient-to-l from-white to-transparent transition-opacity duration-300 ${canScrollRight ? 'opacity-100' : 'opacity-0'}`} />
-
-              <div
-                ref={tabsRef}
-                onScroll={updateTabScrollState}
-                className="flex overflow-x-auto scrollbar-hide no-scrollbar flex-nowrap gap-0.5 scroll-smooth px-0.5"
+        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+          <div className="space-y-2">
+            {activeTab !== 'hub' ? (
+              <button
+                type="button"
+                onClick={goToHub}
+                className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors mb-1"
               >
-                <TabButton active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} label="Overview" />
-                <TabButton active={activeTab === 'tournaments'} onClick={() => setActiveTab('tournaments')} label="Tournaments" icon={<Trophy size={14} />} />
-                <TabButton active={activeTab === 'applications'} onClick={() => setActiveTab('applications')} label="Apps" badge={pendingApps.length} />
-                <TabButton active={activeTab === 'verifications'} onClick={() => setActiveTab('verifications')} label="Verifications" icon={<Shield size={14} />} />
-                <TabButton active={activeTab === 'id-training'} onClick={() => setActiveTab('id-training')} label="ID Training" icon={<Eye size={14} />} />
-                <TabButton active={activeTab === 'users'} onClick={() => setActiveTab('users')} label="Users" />
-                <TabButton active={activeTab === 'security'} onClick={() => setActiveTab('security')} label="Security" icon={<Lock size={14} />} />
-                <TabButton active={activeTab === 'codes'} onClick={() => setActiveTab('codes')} label="Codes" icon={<Key size={14} />} />
-                <TabButton active={activeTab === 'qr-codes'} onClick={() => setActiveTab('qr-codes')} label="QR Codes" icon={<QrCode size={14} />} />
-                <TabButton active={activeTab === 'audit'} onClick={() => setActiveTab('audit')} label="Audit" icon={<Eye size={14} />} />
-                <TabButton active={activeTab === 'terms'} onClick={() => setActiveTab('terms')} label="Terms" icon={<FileText size={14} />} />
-                <TabButton active={activeTab === 'maintenance'} onClick={() => setActiveTab('maintenance')} label="Website" icon={<Construction size={14} />} />
-              </div>
-            </div>
-
-            {/* Right arrow */}
-            <button
-              type="button"
-              aria-label="Scroll tabs right"
-              onClick={() => scrollTabsBy(200)}
-              className={`shrink-0 w-10 h-10 rounded-2xl flex items-center justify-center transition-all duration-200
-                ${canScrollRight
-                  ? 'bg-slate-950 text-white hover:bg-black shadow-lg shadow-slate-400/40 cursor-pointer hover:scale-105 active:scale-95'
-                  : 'bg-slate-200 text-slate-400 opacity-40 cursor-default'}`}
-            >
-              <ChevronRight size={18} strokeWidth={3} />
-            </button>
+                <ChevronLeft size={16} />
+                Back to Admin Console
+              </button>
+            ) : null}
+            <h1 className="text-4xl md:text-5xl font-black text-slate-900 tracking-tight">
+              {activeTab === 'hub' ? 'Admin Console' : sectionTitle}
+            </h1>
+            <p className="text-slate-500 text-base max-w-3xl">
+              {activeTab === 'hub'
+                ? 'KPI hub for platform analytics, approval queues, courts, managers, and operations. Open a card to work the pending items.'
+                : hubQueues.find((q) => q.id === activeTab)?.description ||
+                  'Regional community moderation and operational oversight.'}
+            </p>
           </div>
+          {(activeTab === 'hub' || activeTab === 'tournaments') && (
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {activeTab === 'hub' && (
+                <button
+                  type="button"
+                  onClick={() => goToSection('tournaments')}
+                  className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-white border border-slate-200 text-slate-700 font-black text-[10px] uppercase tracking-widest hover:border-blue-200 hover:text-blue-700 transition-all"
+                >
+                  <Trophy size={14} /> Tournament Ops
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowCreateTournamentWizard(true)}
+                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-blue-600 text-white font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all"
+              >
+                <PlusCircle size={14} /> Create Tournament
+              </button>
+            </div>
+          )}
         </div>
+
+        {activeTab === 'hub' && (
+          <AdminKpiHub queues={hubQueues} onOpen={openHubQueue} />
+        )}
 
         {activeTab === 'overview' && (
           <div className="space-y-8 animate-slide-up">
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-              <MetricCard label="Total Players" value={totalUsers.toLocaleString()} change="+12%" up />
-              <MetricCard label="Integrity" value="99.9%" change="Optimal" up />
-              <MetricCard label="Active Events" value={tournaments.length.toString()} change="live" up />
-              <MetricCard label="Latency" value="24ms" change="-2ms" up />
+              <MetricCard
+                label="Total Users"
+                value={(overviewMetrics?.totalUsers ?? 0).toLocaleString()}
+                change={growthChangeLabel}
+                up={(overviewMetrics?.usersChangePct ?? 0) >= 0}
+              />
+              <MetricCard
+                label="Active (24h)"
+                value={(overviewMetrics?.activeUsers24h ?? 0).toLocaleString()}
+                change="updated"
+                up
+              />
+              <MetricCard
+                label="Courts"
+                value={(overviewMetrics?.totalCourts ?? 0).toLocaleString()}
+                change="live"
+                up
+              />
+              <MetricCard
+                label="30d Booking GMV"
+                value={`₱${Math.round(overviewMetrics?.gmv30d ?? 0).toLocaleString()}`}
+                change={`${overviewMetrics?.bookings30d ?? 0} bookings`}
+                up
+              />
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
               <div className="xl:col-span-2 bg-white p-8 md:p-10 rounded-[48px] border border-slate-200 shadow-sm overflow-hidden">
-                <h2 className="text-xl font-black text-slate-900 mb-8 flex items-center gap-3 uppercase tracking-tight">
-                  <Activity className="text-blue-600" /> Infrastructure Traffic
-                </h2>
+                <div className="flex items-center justify-between mb-8 gap-4 flex-wrap">
+                  <h2 className="text-xl font-black text-slate-900 flex items-center gap-3 uppercase tracking-tight">
+                    <Activity className="text-blue-600" /> User Growth
+                  </h2>
+                  <button
+                    onClick={() => fetchAdminData()}
+                    disabled={overviewLoading}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-100 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-all"
+                  >
+                    <RefreshCw size={12} className={overviewLoading ? 'animate-spin' : ''} />
+                    Refresh
+                  </button>
+                </div>
                 <div className="h-[350px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={GROWTH_DATA}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                      <YAxis hide />
-                      <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} />
-                      <Bar dataKey="active" radius={[8, 8, 0, 0]}>
-                        {GROWTH_DATA.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={index === 5 ? '#2563eb' : '#cbd5e1'} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
+                  {overviewLoading && !overviewMetrics ? (
+                    <div className="h-full flex items-center justify-center text-slate-400 gap-2">
+                      <Loader2 className="animate-spin" size={20} />
+                      <span className="text-sm font-bold uppercase tracking-widest">Loading…</span>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={overviewMetrics?.userGrowth || []}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                        <YAxis hide />
+                        <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} />
+                        <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                          {(overviewMetrics?.userGrowth || []).map((_, index) => (
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={index === (overviewMetrics?.userGrowth.length || 0) - 1 ? '#2563eb' : '#cbd5e1'}
+                            />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
               </div>
               <div className="bg-slate-950 p-10 rounded-[48px] text-white shadow-2xl relative overflow-hidden flex flex-col justify-between">
                 <div className="relative z-10">
                   <h3 className="text-xl font-black flex items-center gap-2 mb-8 uppercase text-lime-400">
-                    <ShieldCheck size={24} /> System Health
+                    <ShieldCheck size={24} /> Action Queues
                   </h3>
                   <div className="space-y-4">
-                    <div className="p-4 bg-white/5 rounded-2xl border border-white/10 flex justify-between items-center">
-                      <span className="text-sm font-bold">API Status</span>
-                      <span className="text-[10px] font-black text-lime-400 uppercase tracking-widest flex items-center gap-2">
-                        <Radio size={12} className="animate-pulse" /> Operational
+                    <button
+                      type="button"
+                      onClick={() => goToSection('applications')}
+                      className="w-full p-4 bg-white/5 rounded-2xl border border-white/10 flex justify-between items-center hover:bg-white/10 transition-all text-left"
+                    >
+                      <span className="text-sm font-bold">Pending Apps</span>
+                      <span className="text-[10px] font-black text-lime-400 uppercase tracking-widest">
+                        {pendingApps.length}
                       </span>
-                    </div>
-                    <div className="p-4 bg-white/5 rounded-2xl border border-white/10 flex justify-between items-center">
-                      <span className="text-sm font-bold">Global Sync</span>
-                      <span className="text-[10px] font-black text-lime-400 uppercase tracking-widest flex items-center gap-2">
-                        <Database size={12} /> Syncing
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => goToSection('verifications')}
+                      className="w-full p-4 bg-white/5 rounded-2xl border border-white/10 flex justify-between items-center hover:bg-white/10 transition-all text-left"
+                    >
+                      <span className="text-sm font-bold">Verifications</span>
+                      <span className="text-[10px] font-black text-lime-400 uppercase tracking-widest">
+                        {overviewMetrics?.pendingVerifications ?? 0}
                       </span>
-                    </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => goToSection('tournaments')}
+                      className="w-full p-4 bg-white/5 rounded-2xl border border-white/10 flex justify-between items-center hover:bg-white/10 transition-all text-left"
+                    >
+                      <span className="text-sm font-bold">Pending Tournaments</span>
+                      <span className="text-[10px] font-black text-lime-400 uppercase tracking-widest">
+                        {pendingTournaments}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => goToSection('courts')}
+                      className="w-full p-4 bg-white/5 rounded-2xl border border-white/10 flex justify-between items-center hover:bg-white/10 transition-all text-left"
+                    >
+                      <span className="text-sm font-bold">Courts</span>
+                      <span className="text-[10px] font-black text-lime-400 uppercase tracking-widest">
+                        {overviewMetrics?.totalCourts ?? 0}
+                      </span>
+                    </button>
                   </div>
                 </div>
-                <button className="w-full py-5 bg-white text-slate-950 font-black text-[10px] uppercase tracking-widest rounded-2xl hover:bg-lime-400 transition-all mt-8">Run System Scan</button>
+                <button
+                  type="button"
+                  onClick={() => fetchAdminData()}
+                  className="w-full py-5 bg-white text-slate-950 font-black text-[10px] uppercase tracking-widest rounded-2xl hover:bg-lime-400 transition-all mt-8 inline-flex items-center justify-center gap-2"
+                >
+                  <RefreshCw size={14} /> Refresh Analytics
+                </button>
               </div>
             </div>
           </div>
@@ -809,25 +1202,36 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
 
         {activeTab === 'tournaments' && (
           <div className="space-y-8 animate-slide-up">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white p-10 rounded-[48px] border border-slate-200 shadow-sm">
-              <div>
-                <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3 tracking-tight uppercase">
-                  <Trophy className="text-blue-500" /> Tournament Operations
-                </h2>
-                <p className="text-slate-500 font-medium text-sm">Approve, feature, and manage all tournament events.</p>
+            <div className="bg-white p-8 md:p-10 rounded-[48px] border border-slate-200 shadow-sm space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-black text-slate-900 flex items-center gap-3 tracking-tight uppercase">
+                    <Trophy className="text-blue-500" /> Tournament Operations
+                  </h2>
+                  <p className="text-slate-500 font-medium text-sm mt-1">Approve, feature, and manage all tournament events.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateTournamentWizard(true)}
+                  className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-blue-600 text-white font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all shrink-0"
+                >
+                  <PlusCircle size={14} /> Create Tournament
+                </button>
               </div>
-              <div className="flex gap-2 flex-wrap">
+
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide no-scrollbar flex-nowrap">
                 {([
                   { value: 'pending', label: 'Pending', classes: 'bg-amber-500 text-white shadow-lg' },
                   { value: 'approved', label: 'Approved', classes: 'bg-emerald-600 text-white shadow-lg' },
                   { value: 'rejected', label: 'Rejected', classes: 'bg-rose-500 text-white shadow-lg' },
                   { value: 'featured', label: 'Featured', classes: 'bg-yellow-400 text-yellow-900 shadow-lg' },
+                  { value: 'archived', label: 'Archived', classes: 'bg-slate-600 text-white shadow-lg' },
                   { value: 'all', label: 'All', classes: 'bg-slate-900 text-white shadow-lg' },
                 ] as { value: typeof adminTournamentFilter; label: string; classes: string }[]).map(opt => (
                   <button
                     key={opt.value}
                     onClick={() => setAdminTournamentFilter(opt.value)}
-                    className={`px-5 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${adminTournamentFilter === opt.value ? opt.classes : 'bg-white border border-slate-200 text-slate-400 hover:text-slate-600'}`}
+                    className={`px-5 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shrink-0 whitespace-nowrap ${adminTournamentFilter === opt.value ? opt.classes : 'bg-white border border-slate-200 text-slate-400 hover:text-slate-600'}`}
                   >
                     {opt.label}
                   </button>
@@ -838,28 +1242,45 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {tournaments
                 .filter(t => {
+                  const archived = isTournamentArchived(t);
+                  if (adminTournamentFilter === 'archived') return archived;
+                  // Non-archived filters hide archived cards
+                  if (archived) return false;
                   if (adminTournamentFilter === 'all') return true;
                   if (adminTournamentFilter === 'pending') return t.isApproved !== true && t.status !== 'CANCELLED';
-                  if (adminTournamentFilter === 'approved') return t.isApproved === true;
+                  if (adminTournamentFilter === 'approved') return t.isApproved === true && t.status !== 'CANCELLED';
                   if (adminTournamentFilter === 'rejected') return t.isApproved === false && t.status === 'CANCELLED';
                   if (adminTournamentFilter === 'featured') return t.isFeatured === true;
                   return true;
                 })
-                .map(t => (
-                <div key={t.id} className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm group hover:shadow-2xl transition-all">
+                .map(t => {
+                  const archived = isTournamentArchived(t);
+                  const archiveDaysLeft = getTournamentArchiveDaysRemaining(t);
+                  return (
+                <div key={t.id} className={`bg-white p-8 rounded-[40px] border shadow-sm group hover:shadow-2xl transition-all ${archived ? 'border-slate-200 opacity-80' : 'border-slate-200'}`}>
                   <div className="flex justify-between items-start mb-4">
                     <div className="bg-amber-100 p-4 rounded-2xl text-amber-600">
                       <Trophy size={24} />
                     </div>
-                    <div className="flex items-center gap-2">
-                      {t.isApproved === true && (
+                    <div className="flex items-center gap-2 flex-wrap justify-end">
+                      {archived && (
+                        <span className="text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest bg-slate-100 text-slate-500 border border-slate-200">
+                          Archived
+                        </span>
+                      )}
+                      {t.isApproved === true && !archived && t.status !== 'CANCELLED' && (
                         <span className="text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center gap-1">
                           <CheckCircle2 size={10} /> Approved
                         </span>
                       )}
-                      {t.isApproved === false && t.status === 'CANCELLED' && (
+                      {t.isApproved === false && t.status === 'CANCELLED' && !archived && (
                         <span className="text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest bg-rose-50 text-rose-500 border border-rose-100">
                           Rejected
+                        </span>
+                      )}
+                      {t.isApproved === true && t.status === 'CANCELLED' && !archived && (
+                        <span className="text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest bg-rose-50 text-rose-500 border border-rose-100">
+                          Terminated
                         </span>
                       )}
                       {t.isApproved !== true && t.status !== 'CANCELLED' && (
@@ -867,12 +1288,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
                           Pending
                         </span>
                       )}
-                      {t.isFeatured && (
+                      {t.isFeatured && !archived && (
                         <span className="text-[9px] font-black px-3 py-1 rounded-full uppercase tracking-widest bg-yellow-50 text-yellow-600 border border-yellow-100 flex items-center gap-1">
                           <Star size={10} /> Featured
                         </span>
                       )}
-                      {t.isApproved !== false && (
+                      {t.isApproved !== false && t.status !== 'CANCELLED' && (
                         <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest ${t.status === 'LIVE' ? 'bg-red-50 text-red-600 border border-red-100 animate-pulse' : 'bg-slate-100 text-slate-500'}`}>
                           {t.status}
                         </span>
@@ -908,23 +1329,49 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
                         <PhilippinePeso size={14} className="text-green-600" /> {t.prizePool}
                       </p>
                     )}
+                    {!archived && t.status === 'CANCELLED' && archiveDaysLeft != null && archiveDaysLeft > 0 && (
+                      <div className="space-y-2 pt-1">
+                        <p className="text-[10px] text-amber-600 font-black uppercase tracking-widest">
+                          Archives in {archiveDaysLeft} day{archiveDaysLeft === 1 ? '' : 's'}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => handleAdminArchiveNow(t.id, t.name)}
+                          className="w-full py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest bg-slate-900 text-white hover:bg-slate-800 transition-all"
+                        >
+                          Archive Immediately
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Admin actions */}
                   <div className="space-y-3 pt-4 border-t border-slate-50">
                     {/* View Details Button */}
                     <button
-                      onClick={() => openAdminDetailModal(t.id)}
+                      onClick={() => openAdminDetailPage(t.id)}
                       className="w-full py-3 rounded-xl font-black text-[9px] uppercase tracking-widest bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg transition-all flex items-center justify-center gap-1.5"
                     >
                       <Eye size={14} /> View Full Details
                     </button>
 
+                    {!archived && t.isApproved === true && t.status !== 'CANCELLED' && (
+                      <button
+                        id={`share-${t.id}`}
+                        type="button"
+                        onClick={() => copyTournamentShareLink(t.id)}
+                        className="w-full py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest bg-blue-50 text-blue-600 border border-blue-100 hover:bg-blue-100 transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <Share2 size={14} /> Copy player join link
+                      </button>
+                    )}
+
                     {/* Approve / Reject row */}
+                    {!archived && (
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleAdminApprove(t.id)}
-                        disabled={t.isApproved === true}
+                        disabled={t.isApproved === true || t.status === 'CANCELLED'}
                         className={`flex-1 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 ${
                           t.isApproved === true ? 'bg-emerald-50 text-emerald-400 cursor-default' : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg'
                         }`}
@@ -933,14 +1380,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
                       </button>
                       <button
                         onClick={() => handleAdminReject(t.id)}
-                        disabled={t.isApproved === false}
-                        className="flex-1 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all flex items-center justify-center gap-1.5"
+                        disabled={t.isApproved === false || t.status === 'CANCELLED'}
+                        className="flex-1 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest bg-slate-50 text-slate-400 hover:bg-rose-50 hover:text-rose-500 transition-all flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:pointer-events-none"
                       >
                         <XCircle size={14} /> Reject
                       </button>
                     </div>
+                    )}
 
                     {/* Feature toggle */}
+                    {!archived && t.status !== 'CANCELLED' && (
                     <button
                       onClick={() => handleAdminFeature(t.id, !t.isFeatured)}
                       className={`w-full py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 ${
@@ -949,17 +1398,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
                     >
                       <Star size={14} /> {t.isFeatured ? 'Unfeatured' : 'Feature'}
                     </button>
+                    )}
 
                     {/* Edit */}
+                    {!archived && (
                     <button
                       onClick={() => openEditModal(t)}
                       className="w-full py-2.5 bg-slate-50 hover:bg-slate-950 hover:text-white rounded-xl text-slate-400 transition-all font-black text-[9px] uppercase tracking-widest flex items-center justify-center gap-1.5"
                     >
                       <Settings size={14} /> Manage
                     </button>
+                    )}
                   </div>
                 </div>
-              ))}
+                  );
+                })}
             </div>
           </div>
         )}
@@ -1038,103 +1491,243 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
         )}
 
         {activeTab === 'users' && (
-          <div className="bg-white rounded-[48px] border border-slate-200 shadow-sm overflow-hidden animate-slide-up">
-            <div className="p-10 border-b border-slate-100 flex items-center justify-between">
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight uppercase">User Registry</h2>
-              <div className="relative">
-                <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input
-                  type="text"
-                  placeholder="Search..."
-                  value={userSearch}
-                  onChange={(e) => setUserSearch(e.target.value)}
-                  className="bg-slate-50 border border-slate-100 rounded-3xl py-4 pl-14 pr-6 text-sm outline-none focus:ring-4 focus:ring-blue-500/10"
-                />
+          <div className="space-y-8 animate-slide-up">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+              <MetricCard
+                label="Total Users"
+                value={(userAnalytics?.total ?? overviewMetrics?.totalUsers ?? 0).toLocaleString()}
+                change="platform"
+                up
+              />
+              <MetricCard
+                label="Suspended"
+                value={(userAnalytics?.suspended ?? 0).toLocaleString()}
+                change="accounts"
+                up={false}
+              />
+              <MetricCard
+                label="Players"
+                value={(userAnalytics?.byRole.find((r) => r.role === 'PLAYER')?.count ?? 0).toLocaleString()}
+                change="role"
+                up
+              />
+              <MetricCard
+                label="Court Owners"
+                value={(userAnalytics?.byRole.find((r) => r.role === 'COURT_OWNER')?.count ?? 0).toLocaleString()}
+                change="role"
+                up
+              />
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+              <div className="bg-white p-8 md:p-10 rounded-[48px] border border-slate-200 shadow-sm">
+                <h2 className="text-xl font-black text-slate-900 mb-6 uppercase tracking-tight">Role Distribution</h2>
+                {(userAnalytics?.byRole.length || 0) === 0 ? (
+                  <p className="text-sm text-slate-400 font-medium py-12 text-center">No role data yet.</p>
+                ) : (
+                  <>
+                    <div className="h-[220px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={userAnalytics?.byRole || []}
+                            dataKey="count"
+                            nameKey="role"
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={50}
+                            outerRadius={85}
+                            paddingAngle={2}
+                          >
+                            {(userAnalytics?.byRole || []).map((_, index) => (
+                              <Cell key={`role-${index}`} fill={ROLE_PIE_COLORS[index % ROLE_PIE_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="flex flex-wrap gap-3 mt-2">
+                      {(userAnalytics?.byRole || []).map((r, i) => (
+                        <span
+                          key={r.role}
+                          className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500"
+                        >
+                          <span
+                            className="w-2.5 h-2.5 rounded-full"
+                            style={{ backgroundColor: ROLE_PIE_COLORS[i % ROLE_PIE_COLORS.length] }}
+                          />
+                          {r.role} · {r.count}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="xl:col-span-2 bg-white p-8 md:p-10 rounded-[48px] border border-slate-200 shadow-sm">
+                <h2 className="text-xl font-black text-slate-900 mb-6 uppercase tracking-tight flex items-center gap-3">
+                  <Activity className="text-blue-600" /> Signup Growth
+                </h2>
+                <div className="h-[260px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={userAnalytics?.growth || overviewMetrics?.userGrowth || []}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                      <YAxis hide />
+                      <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} />
+                      <Bar dataKey="value" fill="#2563eb" radius={[8, 8, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[920px] table-fixed text-left">
-                <thead>
-                  <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                    <th className="px-8 py-6">Identity</th>
-                    <th className="w-40 px-8 py-6">Role</th>
-                    <th className="w-40 px-8 py-6">Status</th>
-                    <th className="w-72 px-8 py-6 text-right">Administrative Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredUsers.map((user) => (
-                    <tr key={user.id}>
-                      <td className="px-8 py-6">
-                        <div className="flex items-center gap-4">
-                          {user.avatarUrl ? (
-                            <img
-                              src={user.avatarUrl}
-                              alt={user.name}
-                              className="w-10 h-10 rounded-xl object-cover border border-slate-100 shadow-sm"
-                            />
-                          ) : (
-                            <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-xs">
-                              {user.name.charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                          <div className="min-w-0">
-                            <p className="truncate font-black text-slate-950 text-sm">{user.name}</p>
-                            <p className="truncate text-[11px] text-slate-400">{user.subtitle}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-8 py-6">
-                        <span className="inline-flex text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-lg bg-slate-100 text-slate-500">
-                          {user.role}
-                        </span>
-                      </td>
-                      <td className="px-8 py-6">
-                        <span className={`inline-flex px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${user.status === 'Active' ? 'bg-green-50 text-green-600' : 'bg-rose-50 text-rose-600'
-                          }`}>
-                          {user.status}
-                        </span>
-                      </td>
-                      <td className="px-8 py-6 text-right">
-                        <div className="flex flex-wrap justify-end gap-2">
-                          {user.role === 'PLAYER' ? (
-                            <button
-                              onClick={() => handleUpdateUserRole(user.id, 'ADMIN')}
-                              className="whitespace-nowrap px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all"
-                            >
-                              Promote
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleUpdateUserRole(user.id, 'PLAYER')}
-                              className="whitespace-nowrap px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all font-bold"
-                            >
-                              Demote
-                            </button>
-                          )}
 
-                          {user.status === 'Active' ? (
-                            <button
-                              onClick={() => handleUpdateUserStatus(user.id, 'Suspended')}
-                              className="whitespace-nowrap px-4 py-2 border border-rose-100 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all shadow-sm"
-                            >
-                              Suspend
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleUpdateUserStatus(user.id, 'Active')}
-                              className="whitespace-nowrap px-4 py-2 bg-green-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-lg"
-                            >
-                              Restore
-                            </button>
-                          )}
-                        </div>
-                      </td>
+            <div className="bg-white rounded-[48px] border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-10 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <h2 className="text-2xl font-black text-slate-900 tracking-tight uppercase">User Registry</h2>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="flex gap-2 flex-wrap">
+                    {(['all', 'PLAYER', 'COACH', 'COURT_OWNER', 'COURT_MANAGER', 'ADMIN'] as const).map((role) => (
+                      <button
+                        key={role}
+                        onClick={() => setUserRoleFilter(role)}
+                        className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                          userRoleFilter === role
+                            ? 'bg-slate-900 text-white'
+                            : 'bg-slate-50 text-slate-400 border border-slate-100 hover:text-slate-600'
+                        }`}
+                      >
+                        {role === 'all' ? 'All' : role.replace(/_/g, ' ')}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="relative">
+                    <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input
+                      type="text"
+                      placeholder="Search..."
+                      value={userSearch}
+                      onChange={(e) => setUserSearch(e.target.value)}
+                      className="bg-slate-50 border border-slate-100 rounded-3xl py-4 pl-14 pr-6 text-sm outline-none focus:ring-4 focus:ring-blue-500/10 w-full sm:w-64"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[920px] table-fixed text-left">
+                  <thead>
+                    <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                      <th className="px-8 py-6">Identity</th>
+                      <th className="w-40 px-8 py-6">Role</th>
+                      <th className="w-28 px-8 py-6">DUPR</th>
+                      <th className="w-40 px-8 py-6">Status</th>
+                      <th className="w-72 px-8 py-6 text-right">Administrative Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredUsers.map((user) => (
+                      <tr key={user.id}>
+                        <td className="px-8 py-6">
+                          <div className="flex items-center gap-4">
+                            {user.avatarUrl ? (
+                              <img
+                                src={user.avatarUrl}
+                                alt={user.name}
+                                className="w-10 h-10 rounded-xl object-cover border border-slate-100 shadow-sm"
+                              />
+                            ) : (
+                              <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-xs">
+                                {user.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="truncate font-black text-slate-950 text-sm">{user.name}</p>
+                              <p className="truncate text-[11px] text-slate-400">{user.subtitle}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-8 py-6">
+                          <span className="inline-flex text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-lg bg-slate-100 text-slate-500">
+                            {user.role}
+                          </span>
+                        </td>
+                        <td className="px-8 py-6 text-sm font-bold text-slate-600">
+                          {user.dupr > 0 ? user.dupr.toFixed(2) : '—'}
+                        </td>
+                        <td className="px-8 py-6">
+                          <span className={`inline-flex px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${user.status === 'Active' ? 'bg-green-50 text-green-600' : 'bg-rose-50 text-rose-600'
+                            }`}>
+                            {user.status}
+                          </span>
+                        </td>
+                        <td className="px-8 py-6 text-right">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            {user.role === 'PLAYER' ? (
+                              <button
+                                onClick={() => handleUpdateUserRole(user.id, 'ADMIN')}
+                                className="whitespace-nowrap px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all"
+                              >
+                                Promote
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleUpdateUserRole(user.id, 'PLAYER')}
+                                className="whitespace-nowrap px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all font-bold"
+                              >
+                                Demote
+                              </button>
+                            )}
+
+                            {user.status === 'Active' ? (
+                              <button
+                                onClick={() => handleUpdateUserStatus(user.id, 'Suspended')}
+                                className="whitespace-nowrap px-4 py-2 border border-rose-100 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all shadow-sm"
+                              >
+                                Suspend
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleUpdateUserStatus(user.id, 'Active')}
+                                className="whitespace-nowrap px-4 py-2 bg-green-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-lg"
+                              >
+                                Restore
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {usersHasMore && (
+                <div className="p-8 border-t border-slate-100 flex justify-center">
+                  <button
+                    onClick={() => loadUsersPage(false)}
+                    disabled={usersLoadingMore}
+                    className="px-8 py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all inline-flex items-center gap-2 disabled:opacity-60"
+                  >
+                    {usersLoadingMore ? <Loader2 size={14} className="animate-spin" /> : null}
+                    Load More
+                  </button>
+                </div>
+              )}
             </div>
+          </div>
+        )}
+
+        {activeTab === 'courts' && (
+          <div className="animate-slide-up">
+            <AdminCourtsAnalytics />
+          </div>
+        )}
+
+        {activeTab === 'court-managers' && (
+          <div className="animate-slide-up">
+            <AdminCourtManagersAnalytics />
           </div>
         )}
 
@@ -1527,13 +2120,17 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
                     onClick={() => {
                       showConfirm(
                         'Terminate Event?',
-                        'This will permanently terminate this tournament event and delete all associated data. This action is irreversible and cannot be undone.',
+                        `This cancels the event. It stays visible for ${TOURNAMENT_ARCHIVE_AFTER_DAYS} days, then moves to Archived.`,
                         async () => {
-                          const { error } = await supabase.from('tournaments').delete().eq('id', editingTournamentId);
-                          if (!error) {
-                            alert('Event terminated successfully.');
+                          try {
+                            await terminateTournament(editingTournamentId!);
+                            await logAdminAction('TOURNAMENT_TERMINATE', editingTournamentId!, 'Tournament', 'Event terminated');
+                            alert('Event terminated. It will move to Archived after 3 days.');
                             setShowTournamentModal(false);
+                            setEditingTournamentId(null);
                             loadTournaments();
+                          } catch (err) {
+                            alert('Failed to terminate tournament.');
                           }
                         },
                         'danger'
@@ -1559,12 +2156,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
         document.body
       )}
 
-      {/* Admin Tournament Detail Modal */}
-      <AdminTournamentDetail
-        tournamentId={viewTournamentId || ''}
-        isOpen={showAdminDetailModal}
-        onClose={closeAdminDetailModal}
-        onActionComplete={handleAdminDetailActionComplete}
+      <CreateTournamentForm
+        isOpen={showCreateTournamentWizard}
+        onClose={() => setShowCreateTournamentWizard(false)}
+        onSubmit={handleCreateTournamentWizardSubmit}
       />
 
       {/* Confirm Dialog */}

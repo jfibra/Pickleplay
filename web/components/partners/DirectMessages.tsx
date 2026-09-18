@@ -461,7 +461,7 @@ const DirectMessages: React.FC<DirectMessagesProps> = ({ onConversationRead }) =
   const selectConversation = (conversation: ConversationWithDetails) => {
     setDismissedEmptyConvIds((prev) => {
       if (!prev.has(conversation.id)) return prev;
-      const next = new Set(prev);
+      const next = new Set<string>(prev);
       next.delete(conversation.id);
       persistDismissedEmptyConvIds(next);
       return next;
@@ -553,7 +553,7 @@ const DirectMessages: React.FC<DirectMessagesProps> = ({ onConversationRead }) =
     (conv: ConversationWithDetails) => {
       if (!isDismissibleEmptyThread(conv)) return;
       setDismissedEmptyConvIds((prev) => {
-        const next = new Set(prev);
+        const next = new Set<string>(prev);
         next.add(conv.id);
         persistDismissedEmptyConvIds(next);
         return next;

@@ -150,8 +150,18 @@ const Login: React.FC = () => {
                     await createSession(data.user.id, deviceName, ipData.ip);
                 } catch { await createSession(data.user.id, deviceName); }
 
-                const twoFactorStatus = await bootstrapTwoFactorSession(data.session?.access_token).catch(async (bootstrapError) => {
+                const twoFactorStatus = await bootstrapTwoFactorSession(data.session?.access_token).catch(async (bootstrapError: any) => {
                     await supabase.auth.signOut();
+                    const bootstrapMessage = String(bootstrapError?.message || bootstrapError || '').toLowerCase();
+                    if (
+                        bootstrapMessage.includes('failed to fetch')
+                        || bootstrapMessage.includes('network')
+                        || bootstrapMessage.includes('request failed')
+                        || bootstrapMessage.includes('supabase admin client')
+                        || bootstrapError?.status === 500
+                    ) {
+                        throw new Error('Login security service is unavailable. Start the API with npm run dev (or npm run dev:server), then try again.');
+                    }
                     throw bootstrapError;
                 });
                 if (twoFactorStatus.pending) {
@@ -448,7 +458,10 @@ const Login: React.FC = () => {
                         {!resetSent && (
                             <p className="mt-6 text-center text-slate-600 text-sm font-medium">
                                 Don't have an account?{' '}
-                                <Link to="/signup" className="text-[#1E40AF] font-bold hover:text-blue-700 transition-all">
+                                <Link
+                                    to={`/signup${redirectUrl && redirectUrl !== '/' ? `?redirect=${encodeURIComponent(redirectUrl)}` : ''}`}
+                                    className="text-[#1E40AF] font-bold hover:text-blue-700 transition-all"
+                                >
                                     Sign up
                                 </Link>
                             </p>

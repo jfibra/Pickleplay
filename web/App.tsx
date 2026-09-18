@@ -118,6 +118,7 @@ import {
 } from './components/court-manager';
 import Achievements from './components/Achievements';
 import AchievementsManager from './components/admin/AchievementsManager';
+import AdminTournamentDetail from './components/admin/AdminTournamentDetail';
 import Coaches from '@/components/Coaches';
 import { supabase } from './services/supabase';
 import { getMaintenanceStatus, getEnabledFeaturesForRole, isFeatureEnabled, ensureDefaultFeatures, DEFAULT_FEATURES_PER_ROLE } from './services/maintenance';
@@ -1102,9 +1103,10 @@ const NavigationHandler: React.FC<{
               <div className="relative space-y-1.5">
                 <NavItem to="/admin" icon={<ShieldCheck size={22} />} label="Admin Console" isCollapsed={isSidebarCollapsed} themeColor={themeColor} />
                 {pendingCount > 0 && <span className={`absolute ${isSidebarCollapsed ? 'top-1 right-2' : 'top-3 right-4'} w-5 h-5 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center animate-pulse`}>{pendingCount}</span>}
+                <NavItem to="/admin/tournaments" icon={<Trophy size={22} />} label="Tournaments" isCollapsed={isSidebarCollapsed} themeColor={themeColor} />
                 <NavItem to="/admin/verifications" icon={<ClipboardCheck size={22} />} label="Court Owner Apps" isCollapsed={isSidebarCollapsed} themeColor={themeColor} badge={pendingVerificationCount || undefined} />
                 <NavItem to="/teams" icon={<UsersRound size={22} />} label="Manage Squads" isCollapsed={isSidebarCollapsed} themeColor={themeColor} />
-                <NavItem to="/achievements-admin" icon={<Medal size={22} />} label="Manage Achievements" isCollapsed={isSidebarCollapsed} themeColor={themeColor} />
+                <NavItem to="/admin/achievements" icon={<Medal size={22} />} label="Manage Achievements" isCollapsed={isSidebarCollapsed} themeColor={themeColor} />
               </div>
             )}
             {role === 'PLAYER' && (
@@ -1513,8 +1515,9 @@ const NavigationHandler: React.FC<{
                 <NavItem to={role === 'COURT_MANAGER' ? COURT_MANAGER_ROUTES.overview : '/dashboard'} icon={<LayoutDashboard size={22} />} label="Overview" isCollapsed={false} themeColor={themeColor} ownerVariant={role === 'COURT_MANAGER'} onClick={() => setIsMobileMenuOpen(false)} isMobile={true} />
               )}
               {role === 'ADMIN' && <NavItem to="/admin" icon={<ShieldCheck size={22} />} label="Admin Console" isCollapsed={false} themeColor={themeColor} onClick={() => setIsMobileMenuOpen(false)} isMobile={true} />}
+              {role === 'ADMIN' && <NavItem to="/admin/tournaments" icon={<Trophy size={22} />} label="Tournaments" isCollapsed={false} themeColor={themeColor} onClick={() => setIsMobileMenuOpen(false)} isMobile={true} />}
               {role === 'ADMIN' && <NavItem to="/admin/verifications" icon={<ClipboardCheck size={22} />} label="Court Owner Apps" isCollapsed={false} themeColor={themeColor} onClick={() => setIsMobileMenuOpen(false)} isMobile={true} badge={pendingVerificationCount || undefined} />}
-              {role === 'ADMIN' && <NavItem to="/achievements-admin" icon={<Medal size={22} />} label="Manage Achievements" isCollapsed={false} themeColor={themeColor} onClick={() => setIsMobileMenuOpen(false)} isMobile={true} />}
+              {role === 'ADMIN' && <NavItem to="/admin/achievements" icon={<Medal size={22} />} label="Manage Achievements" isCollapsed={false} themeColor={themeColor} onClick={() => setIsMobileMenuOpen(false)} isMobile={true} />}
               {role === 'PLAYER' && (
                 <>
                   {feat('booking') && <NavItem to="/booking" icon={<Calendar size={22} />} label="Book Courts" isCollapsed={false} themeColor={themeColor} onClick={() => setIsMobileMenuOpen(false)} isMobile={true} />}
@@ -1638,8 +1641,36 @@ const NavigationHandler: React.FC<{
                             ? <Navigate to="/admin" replace />
                             : <Navigate to="/dashboard" replace />
               } />
-              <Route path="/login" element={<Login />} />
-              <Route path="/signup" element={<Signup />} />
+              <Route path="/login" element={
+                isTwoFactorPending
+                  ? <Navigate to="/verify-2fa" replace />
+                  : role !== 'guest'
+                    ? (
+                      role === 'ADMIN'
+                        ? <Navigate to="/admin" replace />
+                        : role === 'COURT_MANAGER'
+                          ? <Navigate to={COURT_MANAGER_ROUTES.overview} replace />
+                          : role === 'PLAYER'
+                            ? (isSoftLaunchMode ? <Navigate to="/welcome" replace /> : <Navigate to="/booking" replace />)
+                            : <Navigate to="/dashboard" replace />
+                    )
+                    : <Login />
+              } />
+              <Route path="/signup" element={
+                isTwoFactorPending
+                  ? <Navigate to="/verify-2fa" replace />
+                  : role !== 'guest'
+                    ? (
+                      role === 'ADMIN'
+                        ? <Navigate to="/admin" replace />
+                        : role === 'COURT_MANAGER'
+                          ? <Navigate to={COURT_MANAGER_ROUTES.overview} replace />
+                          : role === 'PLAYER'
+                            ? (isSoftLaunchMode ? <Navigate to="/welcome" replace /> : <Navigate to="/booking" replace />)
+                            : <Navigate to="/dashboard" replace />
+                    )
+                    : <Signup />
+              } />
               <Route path="/welcome" element={<SoftLaunchWelcome userName={userName || undefined} />} />
               <Route path="/verify-2fa" element={<TwoFactorVerify />} />
               <Route path="/auth/callback" element={
@@ -1736,9 +1767,11 @@ const NavigationHandler: React.FC<{
               <Route path="/application-status" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role !== 'guest' ? <ApplicationStatus /> : <Navigate to="/login" />} />
 
               <Route path="/admin" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role === 'ADMIN' ? <AdminDashboard applications={applications} onApprove={onApprove} onReject={onReject} currentAdminRole={role} /> : role === 'guest' ? <Navigate to="/login" replace /> : <Navigate to="/dashboard" replace />} />
-              <Route path="/admin/verifications" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role === 'ADMIN' ? <AdminDashboard applications={applications} onApprove={onApprove} onReject={onReject} currentAdminRole={role} initialTab="verifications" /> : role === 'guest' ? <Navigate to="/login" replace /> : <Navigate to="/dashboard" replace />} />
+              <Route path="/admin/achievements" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role === 'ADMIN' ? <AchievementsManager /> : role === 'guest' ? <Navigate to="/login" replace /> : <Navigate to="/dashboard" replace />} />
+              <Route path="/admin/tournaments/:tournamentId" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role === 'ADMIN' ? <AdminTournamentDetail /> : role === 'guest' ? <Navigate to="/login" replace /> : <Navigate to="/dashboard" replace />} />
+              <Route path="/admin/:section" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role === 'ADMIN' ? <AdminDashboard applications={applications} onApprove={onApprove} onReject={onReject} currentAdminRole={role} /> : role === 'guest' ? <Navigate to="/login" replace /> : <Navigate to="/dashboard" replace />} />
               <Route path="/p/:username/:bookingId" element={<PosterPage />} />
-              <Route path="/achievements-admin" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role === 'ADMIN' ? <AchievementsManager /> : role === 'guest' ? <Navigate to="/login" replace /> : <Navigate to="/dashboard" replace />} />
+              <Route path="/achievements-admin" element={<Navigate to="/admin/achievements" replace />} />
               <Route path="/match-verify" element={<MatchVerifyPage />} />
               <Route path="/terms" element={<TermsOfService />} />
               <Route path="/policy" element={<PrivacyPolicy />} />
@@ -1931,6 +1964,18 @@ const App: React.FC = () => {
         .then((status) => {
           setTwoFactorPending(status.pending);
           return status;
+        })
+        .catch((error) => {
+          // Keep profile sync alive when the local API is down; login still enforces bootstrap.
+          console.warn('2FA status check failed:', error);
+          setTwoFactorPending(false);
+          return {
+            pending: false,
+            verified: false,
+            requiresTwoFactor: false,
+            authProvider: 'email',
+            success: false,
+          };
         })
         .finally(() => {
           if (twoFactorStatusKeyRef.current === requestKey) {

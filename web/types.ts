@@ -249,6 +249,10 @@ export interface Tournament {
   announcement?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** When the tournament was rejected or soft-terminated (if column exists). Falls back to updatedAt for archive timing. */
+  cancelledAt?: string;
+  /** When explicitly moved to Archived (skips or completes the grace period). */
+  archivedAt?: string;
   // Tournament mode & registration
   tournamentMode?: TournamentMode;
   registrationMode?: RegistrationMode;
@@ -381,6 +385,7 @@ export interface TournamentRegistration {
   checkedIn?: boolean;
   status?: TournamentRegStatus;
   registeredAt?: string;
+  applicationMessage?: string;
   // Joined
   player?: { id: string; full_name: string; avatar_url?: string };
 }

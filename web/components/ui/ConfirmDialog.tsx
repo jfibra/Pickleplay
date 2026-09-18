@@ -42,7 +42,7 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       icon: CheckCircle2,
       iconBg: 'bg-indigo-100 border border-indigo-200',
       iconColor: 'text-indigo-600',
-      confirmBg: 'bg-indigo-500 hover:bg-indigo-600 shadow-indigo-200',
+      confirmBg: 'bg-indigo-500 hover:bg-indigo-600 shadow-lg shadow-indigo-200',
     },
   };
 
@@ -51,7 +51,7 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
   return ReactDOM.createPortal(
     <div
-      className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={onCancel}
     >
       <div

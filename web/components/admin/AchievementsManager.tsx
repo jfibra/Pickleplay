@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
-import { Trophy, Medal, Plus, Minus, X, Trash2, Edit2, LayoutGrid, List, Target, Zap, Search, ToggleLeft, ToggleRight, Sparkles, AlertTriangle, Users, ChevronUp, ChevronDown } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Trophy, Medal, Plus, Minus, X, Trash2, Edit2, LayoutGrid, List, Target, Zap, Search, ToggleLeft, ToggleRight, Sparkles, AlertTriangle, Users, ChevronUp, ChevronDown, ChevronLeft } from 'lucide-react';
 import { supabase } from '../../services/supabase';
 
 interface Achievement {
@@ -27,6 +28,7 @@ interface PlayerProgress {
 }
 
 const AchievementsManager: React.FC = () => {
+    const navigate = useNavigate();
     const [achievements, setAchievements] = useState<Achievement[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -308,6 +310,14 @@ const AchievementsManager: React.FC = () => {
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
                 <div>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/admin')}
+                        className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors mb-2"
+                    >
+                        <ChevronLeft size={16} />
+                        Back to Admin Console
+                    </button>
                     <h1 className="text-4xl font-black text-slate-900 tracking-tighter uppercase mb-2">Manage Achievements</h1>
                     <p className="text-slate-500 font-medium tracking-tight">Create and manage player achievements and rewards.</p>
                 </div>

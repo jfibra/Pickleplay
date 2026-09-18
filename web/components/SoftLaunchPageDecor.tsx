@@ -29,8 +29,8 @@ export const SoftLaunchPageDecor: React.FC = () => (
           className={`absolute ${ball.size} ${ball.opacity} object-contain animate-float-slow`}
           style={{
             top: ball.top,
-            left: ball.left,
-            right: ball.right,
+            ...('left' in ball ? { left: ball.left } : {}),
+            ...('right' in ball ? { right: ball.right } : {}),
             animationDelay: ball.delay,
             animationDuration: ball.duration,
           } as React.CSSProperties}

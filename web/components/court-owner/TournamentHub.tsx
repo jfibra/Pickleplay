@@ -40,27 +40,27 @@ const MOCK_NAMES: Record<string, { name: string; avatar?: string }> = {
 };
 
 function buildMockHubData() {
-  const tournament: import('../../types').Tournament = {
+  const tournament = {
     id: 'mock-hub-1',
     name: 'Summer Smash Open 2026',
     description: 'The premier mixed doubles event of the season. Compete for glory and the championship trophy!',
     status: 'LIVE',
     format: 'single_elim',
-    eventType: 'Mixed Doubles',
+    eventType: 'mixed_doubles',
     date: '2026-08-15',
     location: 'PicklePlay Arena, Manila',
     maxPlayers: 16,
+    registeredCount: 8,
+    skillLevel: 'Open',
     isFeatured: true,
     isApproved: true,
-    registrationFee: 500,
-    prizePool: 20000,
+    prizePool: '20000',
     registrationDeadline: '2026-08-10',
-    registrationMode: 'open',
+    registrationMode: 'individual',
     announcement: 'Quarter-finals begin at 2:00 PM today. Bracket is posted in the main lobby. Good luck to all participants!',
-    courtOwnerId: 'mock-owner',
     createdAt: '2026-07-01T08:00:00Z',
     updatedAt: new Date().toISOString(),
-  };
+  } as import('../../types').Tournament;
 
   const registrations: import('../../types').TournamentRegistration[] = [
     { id: 'mr-1', tournamentId: 'mock-hub-1', playerId: 'pm-alex',   teamId: 'mt-1', checkedIn: true,  status: 'confirmed', registeredAt: '2026-07-10T09:00:00Z' },
@@ -97,7 +97,7 @@ function buildMockHubData() {
     noShowCount: 0,
     lateCancelCount: 1,
     recentLateCancels: 0,
-    verification: { emailVerified: true, phoneVerified: true },
+    verification: { emailVerified: true, phoneVerified: true, idVerified: false, skillVerified: false },
     socialProof: { endorsements: 8, reviewCount: 14, avgRating: 4.6 },
     tournamentHistory: [],
   });
@@ -699,7 +699,7 @@ const TournamentHub: React.FC = () => {
     // Check rating requirements for competitive tournaments
     if (tournament.tournamentMode === 'competitive' && reg.roster && reg.roster.length > 0) {
       const ratings = reg.roster
-        .map(p => p.player?.rating ?? p.player?.dupr_rating)
+        .map(p => p.player?.rating ?? (p.player as { dupr_rating?: number } | undefined)?.dupr_rating)
         .filter((r): r is number => r !== undefined && r !== null);
       
       if (ratings.length > 0) {
