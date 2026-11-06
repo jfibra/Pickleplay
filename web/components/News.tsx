@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Share2, Bookmark, AlertCircle, ExternalLink, Newspaper, RefreshCw, Clock, TrendingUp, Eye, ChevronRight, ChevronLeft, Flame, Zap, Trophy, UsersRound, Search, Filter, Loader2, Calendar, User, Tag, BookOpen, Facebook, Copy } from 'lucide-react';
 import useSEO from '../hooks/useSEO';
 
@@ -628,7 +628,7 @@ const NewsfeedPageHeader: React.FC<{
     <div>
       <div className="flex items-center gap-2 mb-2">
         <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-        <p className="text-[10px] font-black text-blue-600 uppercase tracking-[0.3em]">Stories & updates</p>
+        <p className="text-[10px] font-black text-blue-700 uppercase tracking-[0.3em]">Stories & updates</p>
       </div>
       <h1 className="text-2xl md:text-4xl font-black text-slate-900 tracking-tighter uppercase leading-tight">
         Newsfeed
@@ -835,7 +835,11 @@ const ArticleDetailSkeleton: React.FC = () => (
 
 
 // ─── Main News Component ────────────────────────────────────────
-const News: React.FC = () => {
+interface NewsProps {
+  showShopPromo?: boolean;
+}
+
+const News: React.FC<NewsProps> = ({ showShopPromo = true }) => {
   const navigate = useNavigate();
   const { legacyArticleId, slug } = useParams<{ legacyArticleId?: string; slug?: string }>();
   const isArticleRoute = Boolean(slug || legacyArticleId);
@@ -1126,14 +1130,14 @@ const News: React.FC = () => {
               {/* Mobile title overlay */}
               <div className="absolute bottom-0 left-0 right-0 p-6 lg:hidden">
                 <h2 className="text-xl font-black text-white leading-tight uppercase tracking-tight">
-                  {featuredArticle.title}
+                  <Link to={buildNewsArticlePath(featuredArticle)} onClick={(e) => e.stopPropagation()}>{featuredArticle.title}</Link>
                 </h2>
               </div>
             </div>
             <div className="lg:w-2/5 p-6 sm:p-8 lg:p-10 flex flex-col justify-center">
               <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-3">{featuredArticle.category}</span>
               <h2 className="hidden lg:block text-2xl xl:text-3xl font-black text-slate-900 tracking-tight leading-tight uppercase mb-4 group-hover:text-blue-600 transition-colors">
-                {featuredArticle.title}
+                <Link to={buildNewsArticlePath(featuredArticle)} onClick={(e) => e.stopPropagation()}>{featuredArticle.title}</Link>
               </h2>
               <p className="text-sm text-slate-600 font-semibold leading-relaxed line-clamp-3 mb-6 tracking-[-0.005em]">
                 {featuredArticle.excerpt}
@@ -1205,7 +1209,7 @@ const News: React.FC = () => {
                   {/* Content */}
                   <div className="p-4 sm:p-5 flex-1 flex flex-col">
                     <h3 className="text-sm sm:text-base font-black text-slate-900 leading-snug uppercase tracking-tight mb-2 group-hover:text-blue-600 transition-colors line-clamp-2">
-                      {article.title}
+                      <Link to={buildNewsArticlePath(article)} onClick={(e) => e.stopPropagation()}>{article.title}</Link>
                     </h3>
                     <p className="text-[11px] sm:text-xs text-slate-600 font-semibold leading-relaxed line-clamp-2 mb-4 flex-1 tracking-[-0.005em]">
                       {article.excerpt}
@@ -1228,6 +1232,7 @@ const News: React.FC = () => {
       </div>
 
       {/* ── Promo Banner ── */}
+      {showShopPromo && (
       <div className="bg-slate-900 rounded-[32px] p-6 sm:p-8 md:p-12 flex flex-col lg:flex-row items-center justify-between gap-8 lg:gap-10 relative overflow-hidden shadow-lg border border-white/5">
         <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-blue-600/10 blur-[100px] rounded-full pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-[300px] h-[300px] bg-lime-400/5 blur-[80px] rounded-full pointer-events-none" />
@@ -1261,6 +1266,7 @@ const News: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
 
       {/* ── Bottom Cards Row ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

@@ -67,6 +67,9 @@
 | player_review_count | integer | |
 | player_avg_rating | numeric | |
 | account_status | text | default `Active` |
+| deleted_at | timestamptz | nullable — admin soft delete (Documentation/migrations/2026/10/26/20261026_profiles_soft_delete.sql) |
+| deleted_by | uuid | FK → profiles, admin who soft-deleted |
+| deletion_reason | text | nullable |
 | created_at | timestamptz | |
 | updated_at | timestamptz | |
 

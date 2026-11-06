@@ -31,6 +31,7 @@ import DivisionRegistrationModal, {
   type DivisionRegistrationFormResult,
 } from './DivisionRegistrationModal';
 import { parseTournamentExtras } from './tournamentExtras';
+import { getTournamentDisplayStatus, isTournamentOpen } from '../../lib/tournamentDisplay';
 import {
   clearPendingDivisionRegistration,
   readPendingDivisionRegistration,
@@ -474,7 +475,7 @@ const TournamentPage: React.FC = () => {
     if (selectedDivisions.length === 0) {
       return { label: 'Select a division to continue', disabled: true, waitlist: false, visible: false };
     }
-    if (deadlinePassed || tournament?.status !== 'UPCOMING') {
+    if (deadlinePassed || !tournament || !isTournamentOpen(tournament)) {
       return { label: 'Registration closed', disabled: true, waitlist: false, visible: true };
     }
     if (!currentUserId) {
@@ -592,7 +593,7 @@ const TournamentPage: React.FC = () => {
     }
   };
 
-  const canRegister = tournament?.status === 'UPCOMING'
+  const canRegister = !!tournament && isTournamentOpen(tournament)
     && !isFull
     && !isRegistered
     && !!currentUserId
@@ -671,7 +672,7 @@ const TournamentPage: React.FC = () => {
           offers: {
             '@type': 'Offer',
             availability:
-              tournament.status === 'UPCOMING'
+              isTournamentOpen(tournament)
                 ? 'https://schema.org/InStock'
                 : 'https://schema.org/SoldOut',
             url: `https://www.pickleplay.ph/tournaments/${tournament.id}`,
@@ -748,10 +749,10 @@ const TournamentPage: React.FC = () => {
             <div className="absolute bottom-4 left-6 flex items-center gap-2 flex-wrap">
               <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${
                 tournament.status === 'LIVE' ? 'bg-emerald-500 text-white' :
-                tournament.status === 'UPCOMING' ? 'bg-blue-600 text-white' :
+                getTournamentDisplayStatus(tournament) === 'UPCOMING' ? 'bg-blue-600 text-white' :
                 'bg-slate-600 text-white'
               }`}>
-                {tournament.status}
+                {getTournamentDisplayStatus(tournament)}
               </span>
               {tournament.isFeatured && (
                 <span className="px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-yellow-400 text-yellow-900 flex items-center gap-1">

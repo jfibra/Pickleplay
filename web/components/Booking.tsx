@@ -8,6 +8,7 @@ import { CourtSkeleton } from './ui/Skeleton';
 import { supabase } from '../services/supabase';
 import { isTimeSlotBlocked, getCourtBlockingEvents } from '../services/courtEvents';
 import { autoCancelLateBookings } from '../services/bookings';
+import { flushPlayerEvents, trackEvent } from '../services/playerEvents';
 import { sendInvitation, searchPlayerForInvite } from '../services/invitations';
 import Receipt from './Receipt';
 import { getLocationPolicies, LocationPolicy } from '../services/policies';
@@ -377,6 +378,7 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
   const [selectedCourt, setSelectedCourt] = useState<Court | null>(null);
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
   const [isBooked, setIsBooked] = useState(false);
+  const bookingCompletedRef = useRef(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [courts, setCourts] = useState<Court[]>([]);
@@ -1873,6 +1875,7 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
     setProofPreview(null);
     setReferenceNumber('');
     setShowPaymentModal(true);
+    trackEvent('booking_checkout_opened', { courtId: selectedCourt.id, slots: selectedSlots.length });
   };
 
   const confirmBookingWithPayment = async () => {
@@ -1881,6 +1884,7 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
     if (paymentMethod === 'gcash' || paymentMethod === 'maya') {
       const cleanRef = normalizeReferenceNumber(referenceNumber);
       if (!proofFile || !cleanRef) {
+        trackEvent('booking_blocked', { reason: 'payment_proof_missing', courtId: selectedCourt.id, paymentMethod });
         alert('📸 Please enter your reference number and upload a payment proof screenshot.');
         return;
       }
@@ -1901,6 +1905,7 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
 
       const currentActiveRole = localStorage.getItem('active_role');
       if (selectedCourt.ownerId && user.id === selectedCourt.ownerId && currentActiveRole !== 'PLAYER') {
+        trackEvent('booking_blocked', { reason: 'own_court', courtId: selectedCourt.id });
         alert('🚫 As a court owner, you cannot book your own court. Switch to Player Mode to book.');
         setIsProcessing(false);
         return;
@@ -1910,6 +1915,7 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
       const now = Date.now();
       if (lastBookingTime && (now - lastBookingTime) < BOOKING_COOLDOWN_MS) {
         const remainingSeconds = Math.ceil((BOOKING_COOLDOWN_MS - (now - lastBookingTime)) / 1000);
+        trackEvent('booking_blocked', { reason: 'cooldown', courtId: selectedCourt.id, remainingSeconds });
         alert(`⏱️ Please wait ${remainingSeconds} seconds before making another booking.`);
         setIsProcessing(false);
         return;
@@ -1924,6 +1930,7 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
       if (userBookingsError) throw userBookingsError;
 
       if (userBookings && (userBookings.length + groupedSelections.length) > 5) {
+        trackEvent('booking_blocked', { reason: 'max_pending', courtId: selectedCourt.id, pending: userBookings.length });
         alert('🚫 You have reached the maximum of 5 pending bookings. Please complete or cancel existing bookings first.');
         setIsProcessing(false);
         return;
@@ -1975,6 +1982,7 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
         if (checkError) throw checkError;
 
         if (overlappingBookings && overlappingBookings.length > 0) {
+          trackEvent('booking_blocked', { reason: 'slot_taken', courtId: selectedCourt.id });
           showToast('This time slot is already booked. Please choose another time.', 'error');
           setIsProcessing(false);
           return;
@@ -1987,6 +1995,7 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
         );
 
         if (isBlocked) {
+          trackEvent('booking_blocked', { reason: 'event_conflict', courtId: selectedCourt.id });
           alert('🚫 This time slot is unavailable. The court owner has scheduled an event during this time.');
           setIsProcessing(false);
           return;
@@ -2112,6 +2121,13 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
       setShowSuccessModal(true);
       setIsBooked(true);
       setShowBookingSummary(false);
+      bookingCompletedRef.current = true;
+      trackEvent('booking_completed', {
+        courtId: selectedCourt.id,
+        groups: createdBookings.length,
+        slots: selectedSlots.length,
+        paymentMethod,
+      });
 
       setPostBookLoadingPlayers(true);
       setPostBookInviteSent([]);
@@ -2142,10 +2158,12 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
       console.error('Booking error:', err);
 
       if (err.message?.includes('unique_court_booking') || err.code === '23505') {
+        trackEvent('booking_blocked', { reason: 'slot_taken', courtId: selectedCourt.id, race: true });
         alert('⚠️ This time slot was just booked by someone else. Please choose another time.');
         setSelectedSlots([]);
         checkCourtAvailability(selectedCourt, selectedDate);
       } else {
+        trackEvent('booking_failed', { courtId: selectedCourt.id, message: err?.message || 'Unknown error', code: err?.code });
         alert(`Booking failed: ${err.message}`);
       }
     } finally {
@@ -2376,7 +2394,9 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
       if (rawLocCt.includes('both')) { ctSet.add('Indoor'); ctSet.add('Outdoor'); }
       else if (rawLocCt.includes('outdoor')) ctSet.add('Outdoor');
       else if (rawLocCt.includes('indoor')) ctSet.add('Indoor');
-      locCourts.forEach((c: any) => {
+      // The location's own court_type wins (same rule as Home). Court-level `type` is inferred from
+      // surface_type (a material such as "Acrylic") and defaults to Outdoor, so only use it as a fallback.
+      if (ctSet.size === 0) locCourts.forEach((c: any) => {
         const ct = (c.type || '').toLowerCase();
         if (ct.includes('indoor')) ctSet.add('Indoor');
         if (ct.includes('outdoor')) ctSet.add('Outdoor');
@@ -2455,6 +2475,69 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
     }
     setGalleryIndex((idx) => Math.min(idx, locationGalleryImages.length - 1));
   }, [locationGalleryImages.length, selectedLocation]);
+
+  useEffect(() => {
+    if (selectedCourt?.id) trackEvent('booking_court_viewed', { courtId: selectedCourt.id });
+  }, [selectedCourt?.id]);
+
+  const pendingSelectionCount = Math.max(selectedSlots.length, locationSelectedSlots.length);
+  const hadSelectionRef = useRef(false);
+  const abandonContextRef = useRef<{ courtId: string | null; locationId: string | null; slots: number }>({
+    courtId: null,
+    locationId: null,
+    slots: 0,
+  });
+  abandonContextRef.current = {
+    courtId: selectedCourt?.id ?? null,
+    locationId: activeLocationId ?? null,
+    slots: pendingSelectionCount,
+  };
+
+  useEffect(() => {
+    if (pendingSelectionCount > 0 && !hadSelectionRef.current) {
+      hadSelectionRef.current = true;
+      bookingCompletedRef.current = false;
+      trackEvent('booking_slot_selected', {
+        courtId: selectedCourt?.id ?? null,
+        locationId: activeLocationId ?? null,
+        slots: pendingSelectionCount,
+      });
+    } else if (pendingSelectionCount === 0) {
+      hadSelectionRef.current = false;
+    }
+  }, [pendingSelectionCount, selectedCourt?.id, activeLocationId]);
+
+  useEffect(() => {
+    const reportAbandon = () => {
+      const context = abandonContextRef.current;
+      if (context.slots === 0 || bookingCompletedRef.current) return;
+      bookingCompletedRef.current = true;
+      trackEvent('booking_abandoned', context);
+      flushPlayerEvents();
+    };
+    window.addEventListener('pagehide', reportAbandon);
+    return () => {
+      window.removeEventListener('pagehide', reportAbandon);
+      reportAbandon();
+    };
+  }, []);
+
+  const lastNoResultQueryRef = useRef('');
+  useEffect(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (isLoading || query.length < 2 || filteredLocations.length > 0) return;
+    const timer = window.setTimeout(() => {
+      if (lastNoResultQueryRef.current === query) return;
+      lastNoResultQueryRef.current = query;
+      trackEvent('search_no_results', {
+        surface: 'booking',
+        query: query.slice(0, 60),
+        filterType,
+        hasExtraFilters: filterFreeOnly || filterAmenities.length > 0 || filterPriceRange[0] > 0 || filterPriceRange[1] < 2000,
+      });
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery, isLoading, filteredLocations.length, filterType, filterFreeOnly, filterAmenities.length, filterPriceRange]);
 
   // Fetch location availability whenever date or location changes
   useEffect(() => {
@@ -2662,6 +2745,8 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
                 <span className="text-sm text-slate-400 font-medium truncate">{searchQuery || 'Search courts or places...'}</span>
               </button>
               <button
+                type="button"
+                aria-label="Filters"
                 onClick={() => setShowFilters(true)}
                 className={`w-10 h-10 flex items-center justify-center rounded-xl shrink-0 transition-all relative ${(filterType !== 'All' || filterFreeOnly || filterAmenities.length > 0)
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/10' : 'bg-white border border-slate-200 text-slate-600'
@@ -2675,6 +2760,8 @@ const Booking: React.FC<BookingProps> = ({ enableSlotGrouping = true }) => {
                 )}
               </button>
               <button
+                type="button"
+                aria-label="My bookings"
                 onClick={() => navigate('/my-bookings')}
                 className="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-xl shrink-0 hover:bg-blue-700 transition-colors shadow-lg shadow-blue-900/10"
               >

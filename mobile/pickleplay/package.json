@@ -5,6 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start": "expo start",
+    "start:usb": "node scripts/start-usb.js",
+    "start:prototype": "node scripts/start-prototype.js",
+    "start:prototype:usb": "node scripts/start-prototype.js --usb",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web"

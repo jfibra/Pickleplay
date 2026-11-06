@@ -15,6 +15,10 @@ import { createClient } from '@supabase/supabase-js';
 import { createTwoFactorRouter } from './server/twoFactorRoutes.js';
 import { resolveNewsApiBase, withResolvedArticleImage } from '../shared/newsImage.js';
 import { createSecurityReauthToolkit } from './server/securityReauthRoutes.js';
+import { createAdminUsersRouter } from './server/adminUsersRoutes.js';
+import { createAdminCourtOwnersRouter } from './server/adminCourtOwnersRoutes.js';
+import { createAdminPlayersRouter } from './server/adminPlayersRoutes.js';
+import { createPlayerEventsRouter } from './server/playerEventsRoutes.js';
 import { buildPaymentConfirmationEmailHtml } from '../shared/paymentConfirmationEmailTemplate.js';
 
 dotenv.config();
@@ -879,6 +883,20 @@ const managerInviteLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
   message: { error: 'Too many court manager requests. Please try again shortly.' },
+});
+
+const adminUsersLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 600,
+  message: { error: 'Too many admin requests. Please slow down.' },
+});
+
+const playerEventsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many events.' },
 });
 
 // 9. Block suspicious user-agents and empty requests
@@ -3075,6 +3093,33 @@ app.use('/api/auth/2fa', createTwoFactorRouter({
   sendTwoFactorEmail,
   secret: TWO_FACTOR_SECRET,
   consumeSecurityTrust: securityReauthToolkit.consumeTrustToken,
+}));
+
+app.use('/api/admin/users', createAdminUsersRouter({
+  supabaseAdmin,
+  requireSupabaseAdmin,
+  requireAuthenticatedSession,
+  limiter: adminUsersLimiter,
+}));
+
+app.use('/api/admin/court-owners', createAdminCourtOwnersRouter({
+  supabaseAdmin,
+  requireSupabaseAdmin,
+  requireAuthenticatedSession,
+  limiter: adminUsersLimiter,
+}));
+
+app.use('/api/admin/players', createAdminPlayersRouter({
+  supabaseAdmin,
+  requireSupabaseAdmin,
+  requireAuthenticatedSession,
+  limiter: adminUsersLimiter,
+}));
+
+app.use('/api/events', createPlayerEventsRouter({
+  supabaseAdmin,
+  requireSupabaseAdmin,
+  limiter: playerEventsLimiter,
 }));
 
 // ─── QR Login Endpoints ───────────────────────────────────────

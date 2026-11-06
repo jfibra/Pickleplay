@@ -1,7 +1,7 @@
 
 
 // This file contains the main application logic, routing, and navigation components.
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, useNavigate, Navigate, useSearchParams } from 'react-router-dom';
 import {
   Trophy,
@@ -52,74 +52,80 @@ import {
 } from 'lucide-react';
 import ReactDOM from 'react-dom';
 
-import Home from './components/Home';
-import Dashboard from './components/Dashboard';
-import Booking from './components/Booking';
-import Community, { GroupDetail, GroupManage } from './components/community';
-import Groups from './components/community/Groups';
-import Rankings from './components/Rankings';
-import AdminDashboard from './components/admin/AdminDashboard';
-import Tournaments from './components/Tournaments';
-import News from './components/News';
-import Shop from './components/Shop';
-import { SquadsList, SquadDetail } from './components/squads';
-import Academy from './components/Academy';
-import MyBookings from './components/MyBookings';
-import Profile from './components/Profile';
-import GuestBooking from './components/GuestBooking.tsx';
 import UsernameSetupModal from './components/UsernameSetupModal';
-import Login from './components/Login';
-import Signup from './components/Signup';
-import TwoFactorVerify from './components/TwoFactorVerify';
-import AuthCallback from './components/AuthCallback';
-import UpdatePassword from './components/UpdatePassword';
-import NotFound from './components/NotFound';
-import CourtDetail from './components/CourtDetail';
-import FAQ from './components/FAQ';
-import MatchVerifyPage from './components/MatchVerifyPage';
-import PosterPage from './components/PosterPage';
-import TermsOfService from './components/TermsOfService';
-import PrivacyPolicy from './components/PrivacyPolicy';
-
-import FindPartners from './components/partners/FindPartners';
-import DirectMessages from './components/partners/DirectMessages';
 import { AvatarImg, PlaceholderAvatar } from './components/partners/PlaceholderAvatar';
 import { getTotalUnreadCount } from './services/directMessages';
-import Others from './components/Others';
+import { lazyWithReload as lazyPage } from './lib/lazyWithReload';
 
-// Guides Components
-import GuidesIndex from './components/guides/GuidesIndex';
-import GuideReader from './components/guides/GuideReader';
-import SkillRatingQuiz from './components/guides/SkillRatingQuiz';
+// Route pages are code-split: each one downloads the first time it is opened.
+const Home = lazyPage(() => import('./components/Home'));
+const Dashboard = lazyPage(() => import('./components/Dashboard'));
+const Booking = lazyPage(() => import('./components/Booking'));
+const Community = lazyPage(() => import('./components/community/Community'));
+const GroupDetail = lazyPage(() => import('./components/community/GroupDetail'));
+const GroupManage = lazyPage(() => import('./components/community/GroupManage'));
+const Groups = lazyPage(() => import('./components/community/Groups'));
+const Rankings = lazyPage(() => import('./components/Rankings'));
+const AdminDashboard = lazyPage(() => import('./components/admin/AdminDashboard'));
+const Tournaments = lazyPage(() => import('./components/Tournaments'));
+const News = lazyPage(() => import('./components/News'));
+const Shop = lazyPage(() => import('./components/Shop'));
+const SquadsList = lazyPage(() => import('./components/squads/SquadsList').then((m) => ({ default: m.SquadsList })));
+const SquadDetail = lazyPage(() => import('./components/squads/SquadDetail').then((m) => ({ default: m.SquadDetail })));
+const Academy = lazyPage(() => import('./components/Academy'));
+const MyBookings = lazyPage(() => import('./components/MyBookings'));
+const Profile = lazyPage(() => import('./components/Profile'));
+const GuestBooking = lazyPage(() => import('./components/GuestBooking.tsx'));
+const Login = lazyPage(() => import('./components/Login'));
+const Signup = lazyPage(() => import('./components/Signup'));
+const TwoFactorVerify = lazyPage(() => import('./components/TwoFactorVerify'));
+const AuthCallback = lazyPage(() => import('./components/AuthCallback'));
+const UpdatePassword = lazyPage(() => import('./components/UpdatePassword'));
+const NotFound = lazyPage(() => import('./components/NotFound'));
+const CourtDetail = lazyPage(() => import('./components/CourtDetail'));
+const FAQ = lazyPage(() => import('./components/FAQ'));
+const MatchVerifyPage = lazyPage(() => import('./components/MatchVerifyPage'));
+const PosterPage = lazyPage(() => import('./components/PosterPage'));
+const TermsOfService = lazyPage(() => import('./components/TermsOfService'));
+const PrivacyPolicy = lazyPage(() => import('./components/PrivacyPolicy'));
+const FindPartners = lazyPage(() => import('./components/partners/FindPartners'));
+const DirectMessages = lazyPage(() => import('./components/partners/DirectMessages'));
+const Others = lazyPage(() => import('./components/Others'));
+const SoftLaunchWelcome = lazyPage(() => import('./components/SoftLaunchWelcome'));
 
-// Professional Components
-import Students from './components/coach/Students';
-import Clinics from './components/coach/Clinics';
-import Schedule from './components/coach/Schedule';
-import BookingsAdmin from './components/court-owner/BookingsAdmin';
-import Revenue from './components/court-owner/Revenue';
-import Transactions from './components/court-owner/Transactions';
-import TournamentsManager from './components/court-owner/TournamentsManager';
-import TournamentHub from './components/court-owner/TournamentHub';
-import TournamentPage from './components/tournaments/TournamentPage';
-import CourtCalendar from './components/court-owner/CourtCalendar';
-import LocationsList from './components/court-owner/location/LocationsList';
-import LocationDetailPage from './components/court-owner/location/LocationDetailPage';
-import LocationPolicies from './components/court-owner/LocationPolicies';
-import CourtPricing from './components/court-owner/CourtPricing';
-import ApplicationStatus from './components/court-owner/ApplicationStatus';
-import ManagerInvitePage from './components/court-owner/ManagerInvitePage';
-import {
-  CourtManagerAssignedCourtPage,
-  CourtManagerBookingsPage,
-  CourtManagerLayout,
-  CourtManagerOverviewPage,
-  CourtManagerSchedulePage,
-} from './components/court-manager';
-import Achievements from './components/Achievements';
-import AchievementsManager from './components/admin/AchievementsManager';
-import AdminTournamentDetail from './components/admin/AdminTournamentDetail';
-import Coaches from '@/components/Coaches';
+// Guides
+const GuidesIndex = lazyPage(() => import('./components/guides/GuidesIndex'));
+const GuideReader = lazyPage(() => import('./components/guides/GuideReader'));
+const SkillRatingQuiz = lazyPage(() => import('./components/guides/SkillRatingQuiz'));
+
+// Professional
+const Students = lazyPage(() => import('./components/coach/Students'));
+const Clinics = lazyPage(() => import('./components/coach/Clinics'));
+const Schedule = lazyPage(() => import('./components/coach/Schedule'));
+const BookingsAdmin = lazyPage(() => import('./components/court-owner/BookingsAdmin'));
+const Revenue = lazyPage(() => import('./components/court-owner/Revenue'));
+const Transactions = lazyPage(() => import('./components/court-owner/Transactions'));
+const TournamentsManager = lazyPage(() => import('./components/court-owner/TournamentsManager'));
+const TournamentHub = lazyPage(() => import('./components/court-owner/TournamentHub'));
+const TournamentPage = lazyPage(() => import('./components/tournaments/TournamentPage'));
+const CourtCalendar = lazyPage(() => import('./components/court-owner/CourtCalendar'));
+const LocationsList = lazyPage(() => import('./components/court-owner/location/LocationsList'));
+const LocationDetailPage = lazyPage(() => import('./components/court-owner/location/LocationDetailPage'));
+const LocationPolicies = lazyPage(() => import('./components/court-owner/LocationPolicies'));
+const CourtPricing = lazyPage(() => import('./components/court-owner/CourtPricing'));
+const ApplicationStatus = lazyPage(() => import('./components/court-owner/ApplicationStatus'));
+const ManagerInvitePage = lazyPage(() => import('./components/court-owner/ManagerInvitePage'));
+const CourtManagerLayout = lazyPage(() => import('./components/court-manager/CourtManagerLayout'));
+const CourtManagerOverviewPage = lazyPage(() => import('./components/court-manager/pages/CourtManagerOverviewPage'));
+const CourtManagerAssignedCourtPage = lazyPage(() => import('./components/court-manager/pages/CourtManagerAssignedCourtPage'));
+const CourtManagerBookingsPage = lazyPage(() => import('./components/court-manager/pages/CourtManagerBookingsPage'));
+const CourtManagerSchedulePage = lazyPage(() => import('./components/court-manager/pages/CourtManagerSchedulePage'));
+const Achievements = lazyPage(() => import('./components/Achievements'));
+const AchievementsManager = lazyPage(() => import('./components/admin/AchievementsManager'));
+const AdminTournamentDetail = lazyPage(() => import('./components/admin/AdminTournamentDetail'));
+const AdminCourtOwnerDetail = lazyPage(() => import('./components/admin/court-owners/AdminCourtOwnerDetail'));
+const PlayerJourneyPage = lazyPage(() => import('./components/admin/players/PlayerJourneyPage'));
+const Coaches = lazyPage(() => import('@/components/Coaches'));
 import { supabase } from './services/supabase';
 import { getMaintenanceStatus, getEnabledFeaturesForRole, isFeatureEnabled, ensureDefaultFeatures, DEFAULT_FEATURES_PER_ROLE } from './services/maintenance';
 import { getTwoFactorStatus } from './services/twoFactorAuth';
@@ -127,13 +133,25 @@ import { isGoogleSession, shouldBlockUnverifiedEmailSession } from './services/a
 import { approveCourtManager } from './lib/court-manager/actions';
 import { COURT_MANAGER_ROUTES } from './lib/court-manager/constants';
 import MaintenanceScreen from './components/MaintenanceScreen';
-import SoftLaunchWelcome from './components/SoftLaunchWelcome';
 import FeatureUnavailable from './components/FeatureUnavailable';
 // Fix: Import UserRole from the centralized types.ts file.
 import { ProfessionalApplication, UserRole, Notification, SocialPost, SocialComment, Product, CartItem } from './types';
 import { INITIAL_APPLICATIONS, INITIAL_POSTS } from './data/mockData';
 
+/** Shown in the content area while a page's code downloads on its first visit. */
+const RouteFallback: React.FC = () => (
+  <div className="flex min-h-[60vh] items-center justify-center" role="status" aria-label="Loading page">
+    <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+  </div>
+);
+
 /** Full-screen overlay + soft redirect shown during logout so there's no black flash. */
+/** Guest hitting a members-only route: go to login, then return to the page they asked for. */
+const GuestToLogin: React.FC = () => {
+  const location = useLocation();
+  return <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`} replace />;
+};
+
 const LogoutOverlay: React.FC<{ onNavigated: () => void }> = ({ onNavigated }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -927,13 +945,16 @@ const NavigationHandler: React.FC<{
   const pageTheme = isCourtOwnerManagementRoute || isCourtManagerManagementRoute
     ? 'court-owner'
     : 'default';
+  const isAdminShell = role === 'ADMIN';
   const roleShellTheme = isCourtOperationsShell
     ? 'court-owner'
-    : 'default';
-  const shellBackgroundColor = isCourtOperationsShell ? '#F4F8EC' : '#EBEBE6';
-  const sidebarBackgroundColor = isCourtOperationsShell ? '#0B5D3B' : '#1E40AF';
-  const roleDropdownBackgroundColor = isCourtOperationsShell ? '#397C61' : '#2563EB';
-  const mainBackgroundColor = isAuthPage ? '#1E40AF' : shellBackgroundColor;
+    : isAdminShell
+      ? 'admin'
+      : 'default';
+  const shellBackgroundColor = isCourtOperationsShell ? '#F4F8EC' : isAdminShell ? '#F1F5F9' : '#EBEBE6';
+  const sidebarBackgroundColor = isCourtOperationsShell ? '#0B5D3B' : isAdminShell ? '#0F172A' : '#1E40AF';
+  const roleDropdownBackgroundColor = isCourtOperationsShell ? '#397C61' : isAdminShell ? '#1E293B' : '#2563EB';
+  const mainBackgroundColor = isAuthPage ? '#07152B' : shellBackgroundColor;
 
   useEffect(() => {
     if (pageTheme === 'default') {
@@ -985,7 +1006,7 @@ const NavigationHandler: React.FC<{
     ) : !featuresLoaded || feat('news') ? (
       role === 'guest' ? (
         <div className="p-4 md:p-8 pt-20 md:pt-32 max-w-[1800px] mx-auto w-full">
-          <News />
+          <News showShopPromo={false} />
         </div>
       ) : (
         <News />
@@ -1084,7 +1105,7 @@ const NavigationHandler: React.FC<{
           </button>
 
           <div className={`${isSidebarCollapsed ? 'p-4' : 'p-8'} flex items-center mb-4 ${isSidebarCollapsed ? 'justify-center' : 'justify-start'}`} style={{ transition: 'padding 200ms ease-in-out' }}>
-            <Link to="/" className="flex items-center gap-3 font-black text-xl tracking-tighter shrink-0">
+            <Link to="/" state={{ showHome: true }} className="flex items-center gap-3 font-black text-xl tracking-tighter shrink-0">
               <img src="/images/PicklePlayLogo.jpg" alt="PicklePlay" className={`${isSidebarCollapsed ? 'w-12 h-12' : 'w-20 h-20'} object-contain rounded-xl`} style={{ transition: 'width 200ms ease-in-out, height 200ms ease-in-out' }} />
               {!isSidebarCollapsed && (
                 <span className="text-white font-black leading-none animate-in fade-in slide-in-from-left-2 duration-300">
@@ -1105,6 +1126,8 @@ const NavigationHandler: React.FC<{
                 {pendingCount > 0 && <span className={`absolute ${isSidebarCollapsed ? 'top-1 right-2' : 'top-3 right-4'} w-5 h-5 bg-rose-500 text-white text-[10px] font-black rounded-full flex items-center justify-center animate-pulse`}>{pendingCount}</span>}
                 <NavItem to="/admin/tournaments" icon={<Trophy size={22} />} label="Tournaments" isCollapsed={isSidebarCollapsed} themeColor={themeColor} />
                 <NavItem to="/admin/verifications" icon={<ClipboardCheck size={22} />} label="Court Owner Apps" isCollapsed={isSidebarCollapsed} themeColor={themeColor} badge={pendingVerificationCount || undefined} />
+                <NavItem to="/admin/court-owners" icon={<Building2 size={22} />} label="Court Owners" isCollapsed={isSidebarCollapsed} themeColor={themeColor} />
+                <NavItem to="/admin/players" icon={<BarChart3 size={22} />} label="Player Analytics" isCollapsed={isSidebarCollapsed} themeColor={themeColor} />
                 <NavItem to="/teams" icon={<UsersRound size={22} />} label="Manage Squads" isCollapsed={isSidebarCollapsed} themeColor={themeColor} />
                 <NavItem to="/admin/achievements" icon={<Medal size={22} />} label="Manage Achievements" isCollapsed={isSidebarCollapsed} themeColor={themeColor} />
               </div>
@@ -1451,14 +1474,14 @@ const NavigationHandler: React.FC<{
 
       {/* Mobile Top Header */}
       {!isAuthPage && !isPosterPage && (
-        <header className={`md:hidden fixed top-0 left-0 right-0 h-16 flex items-center justify-between px-6 z-50 transition-all duration-500 ease-in-out ${headerActive || role !== 'guest' ? 'bg-white/20 backdrop-blur-xl border-b border-white/20 shadow-lg' : 'bg-transparent'} ${isVisible ? 'translate-y-0' : '-translate-y-full'}`}>
-          <Link to="/" className={`flex items-center gap-2 font-black text-xl tracking-tighter ${headerActive || role !== 'guest' ? 'text-slate-900' : 'text-white'}`}>
+        <header className={`md:hidden fixed top-0 left-0 right-0 h-16 flex items-center justify-between px-6 z-50 transition-all duration-500 ease-in-out ${role !== 'guest' ? 'bg-white/20 backdrop-blur-xl border-b border-white/20 shadow-lg' : headerActive ? 'bg-white/90 backdrop-blur-xl border-b border-slate-200/70 shadow-sm' : 'bg-gradient-to-b from-slate-950/70 to-transparent'} ${isVisible ? 'translate-y-0' : '-translate-y-full'}`}>
+          <Link to="/" state={{ showHome: true }} className={`flex items-center gap-2 font-black text-xl tracking-tighter ${headerActive || role !== 'guest' ? 'text-slate-900' : 'text-white'}`}>
             <img src="/images/PicklePlayLogo.jpg" alt="PicklePlay" className="w-8 h-8 object-contain rounded-lg" />
           </Link>
           <div className="flex items-center gap-4">
             {role === 'guest' ? (
               <>
-                <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className={`p-2 rounded-xl transition-all ${headerActive ? 'text-slate-600 hover:bg-slate-100' : 'text-white hover:bg-white/10'}`}>
+                <button type="button" aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'} aria-expanded={isMobileMenuOpen} onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className={`p-2 rounded-xl transition-all ${headerActive ? 'text-slate-600 hover:bg-slate-100' : 'text-white hover:bg-white/10'}`}>
                   {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
                 </button>
               </>
@@ -1483,10 +1506,6 @@ const NavigationHandler: React.FC<{
               <Link to="/guides" onClick={() => setIsMobileMenuOpen(false)} className="flex items-center gap-3 px-4 py-3.5 rounded-xl text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-all font-bold text-sm uppercase tracking-wider">
                 <BookOpen size={20} />
                 Play Guide
-              </Link>
-              <Link to="/shop" onClick={() => setIsMobileMenuOpen(false)} className="flex items-center gap-3 px-4 py-3.5 rounded-xl text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-all font-bold text-sm uppercase tracking-wider">
-                <ShoppingBag size={20} />
-                Pro Shop
               </Link>
               <Link to="/news" onClick={() => setIsMobileMenuOpen(false)} className="flex items-center gap-3 px-4 py-3.5 rounded-xl text-slate-700 hover:bg-slate-50 hover:text-blue-600 transition-all font-bold text-sm uppercase tracking-wider">
                 <Newspaper size={20} />
@@ -1517,6 +1536,8 @@ const NavigationHandler: React.FC<{
               {role === 'ADMIN' && <NavItem to="/admin" icon={<ShieldCheck size={22} />} label="Admin Console" isCollapsed={false} themeColor={themeColor} onClick={() => setIsMobileMenuOpen(false)} isMobile={true} />}
               {role === 'ADMIN' && <NavItem to="/admin/tournaments" icon={<Trophy size={22} />} label="Tournaments" isCollapsed={false} themeColor={themeColor} onClick={() => setIsMobileMenuOpen(false)} isMobile={true} />}
               {role === 'ADMIN' && <NavItem to="/admin/verifications" icon={<ClipboardCheck size={22} />} label="Court Owner Apps" isCollapsed={false} themeColor={themeColor} onClick={() => setIsMobileMenuOpen(false)} isMobile={true} badge={pendingVerificationCount || undefined} />}
+              {role === 'ADMIN' && <NavItem to="/admin/court-owners" icon={<Building2 size={22} />} label="Court Owners" isCollapsed={false} themeColor={themeColor} onClick={() => setIsMobileMenuOpen(false)} isMobile={true} />}
+              {role === 'ADMIN' && <NavItem to="/admin/players" icon={<BarChart3 size={22} />} label="Player Analytics" isCollapsed={false} themeColor={themeColor} onClick={() => setIsMobileMenuOpen(false)} isMobile={true} />}
               {role === 'ADMIN' && <NavItem to="/admin/achievements" icon={<Medal size={22} />} label="Manage Achievements" isCollapsed={false} themeColor={themeColor} onClick={() => setIsMobileMenuOpen(false)} isMobile={true} />}
               {role === 'PLAYER' && (
                 <>
@@ -1586,14 +1607,13 @@ const NavigationHandler: React.FC<{
 
       {/* Guest Desktop Header */}
       {role === 'guest' && !isAuthPage && (
-        <header className={`hidden md:flex fixed top-0 left-0 right-0 h-20 z-50 transition-all duration-500 ease-in-out items-center px-6 md:px-12 lg:px-24 justify-between animate-fade-in opacity-0 ${headerActive ? 'bg-white/20 backdrop-blur-xl shadow-lg border-b border-white/10' : 'bg-white/10 backdrop-blur-md border-b border-white/20'} ${isVisible ? 'translate-y-0' : '-translate-y-full'}`}>
+        <header className={`hidden md:flex fixed top-0 left-0 right-0 h-20 z-50 transition-all duration-500 ease-in-out items-center px-6 md:px-12 lg:px-24 justify-between animate-fade-in opacity-0 ${headerActive ? 'bg-white/90 backdrop-blur-xl shadow-sm border-b border-slate-200/70' : 'bg-gradient-to-b from-slate-950/70 via-slate-950/30 to-transparent'} ${isVisible ? 'translate-y-0' : '-translate-y-full'}`}>
           <Link to="/" className={`flex items-center gap-2 font-black text-2xl tracking-tighter transition-colors ${headerActive ? 'text-slate-950' : 'text-white'}`}>
             <img src="/images/PicklePlayLogo.jpg" alt="PicklePlay" className="w-14 h-14 object-contain rounded-xl" />
           </Link>
           <nav className={`hidden md:flex items-center gap-8 font-black text-sm uppercase tracking-[0.2em] transition-colors ${headerActive ? 'text-slate-600' : 'text-white/80'}`}>
-            <Link to="/guides" className={`transition-colors ${headerActive ? 'hover:text-lime-400' : 'hover:text-white'}`}>PLAY GUIDE</Link>
-            <Link to="/shop" className={`transition-colors ${headerActive ? 'hover:text-lime-400' : 'hover:text-white'}`}>PRO SHOP</Link>
-            <Link to="/news" className={`transition-colors ${headerActive ? 'hover:text-lime-400' : 'hover:text-white'}`}>NEWS</Link>
+            <Link to="/guides" className={`transition-colors ${headerActive ? 'hover:text-blue-600' : 'hover:text-lime-400'}`}>PLAY GUIDE</Link>
+            <Link to="/news" className={`transition-colors ${headerActive ? 'hover:text-blue-600' : 'hover:text-lime-400'}`}>NEWS</Link>
             <Link to="/login" className={`px-8 py-3.5 rounded-full shadow-lg transition-all active:scale-95 flex items-center gap-2 font-black bg-blue-600 text-white shadow-blue-900/20`}>LET'S PICKLE</Link>
           </nav>
         </header>
@@ -1615,12 +1635,15 @@ const NavigationHandler: React.FC<{
               location.pathname === '/terms' ||
               location.pathname === '/policy' ||
               location.pathname === '/messages' ||
-              location.pathname.startsWith('/groups')
+              location.pathname.startsWith('/groups') ||
+              location.pathname.startsWith('/guides/') ||
+              location.pathname === '/'
               ? '' // full-bleed — these pages manage their own layout
               : 'p-4 md:p-8 lg:p-14 max-w-[1920px] mx-auto w-full'
           )
           } transition-colors duration-300`}>
           <div key={location.pathname} className={isAuthPage ? "" : "animate-route-transition"}>
+            <Suspense fallback={<RouteFallback />}>
             <Routes location={location}>
               <Route path="/" element={
                 // Safety net: check if a password recovery is pending in sessionStorage.
@@ -1633,7 +1656,7 @@ const NavigationHandler: React.FC<{
                     ? <Navigate to="/update-password" replace />
                     : isTwoFactorPending
                       ? <Navigate to="/verify-2fa" replace />
-                      : role === 'guest'
+                      : role === 'guest' || (location.state as { showHome?: boolean } | null)?.showHome
                         ? <Home />
                         : role === 'PLAYER'
                           ? (isSoftLaunchMode ? <SoftLaunchWelcome userName={userName || undefined} /> : <Navigate to="/booking" replace />)
@@ -1688,6 +1711,8 @@ const NavigationHandler: React.FC<{
                 element={
                   isTwoFactorPending
                     ? <Navigate to="/verify-2fa" replace />
+                    : role === 'guest'
+                      ? <Navigate to="/" replace />
                     : !feat('shop')
                       ? <FeatureUnavailable featureName="shop" />
                       : <Shop cartItems={cartItems} onAddToCart={onAddToCart} onUpdateCartQuantity={onUpdateCartQuantity} onRemoveFromCart={onRemoveFromCart} />
@@ -1701,27 +1726,27 @@ const NavigationHandler: React.FC<{
               <Route path="/guides/skill-rating" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('guides') ? whenFeatureDisabled('guides', role === 'guest' ? '/' : '/dashboard') : <SkillRatingQuiz isLoggedIn={role !== 'guest'} />} />
               <Route path="/guides/:slug" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('guides') && role !== 'guest' ? <FeatureUnavailable featureName="guides" /> : <GuideReader isLoggedIn={role !== 'guest'} />} />
               <Route path="/rankings" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('rankings') ? whenFeatureDisabled('rankings', role === 'guest' ? '/' : '/dashboard') : <div className="p-4 md:p-8 pt-24 max-w-[1800px] mx-auto w-full"><Rankings /></div>} />
-              <Route path="/dashboard" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('dashboard') ? whenFeatureDisabled('dashboard', '/') : role === 'COURT_MANAGER' ? <Navigate to={COURT_MANAGER_ROUTES.overview} replace /> : role !== 'guest' ? <Dashboard userRole={role} onSubmitApplication={onSubmitApplication} setRole={setRole} applications={applications} isSidebarCollapsed={isSidebarCollapsed} userName={userName} authorizedProRoles={authorizedProRoles} currentUserId={currentUserId} /> : <Navigate to="/" />} />
+              <Route path="/dashboard" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('dashboard') ? whenFeatureDisabled('dashboard', '/') : role === 'COURT_MANAGER' ? <Navigate to={COURT_MANAGER_ROUTES.overview} replace /> : role !== 'guest' ? <Dashboard userRole={role} onSubmitApplication={onSubmitApplication} setRole={setRole} applications={applications} isSidebarCollapsed={isSidebarCollapsed} userName={userName} authorizedProRoles={authorizedProRoles} currentUserId={currentUserId} /> : <GuestToLogin />} />
               <Route path="/faq" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : <FAQ />} />
               <Route path="/booking" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('booking') ? whenFeatureDisabled('booking', role === 'guest' ? '/' : '/dashboard') : role === 'guest' ? <GuestBooking /> : <Booking />} />
-              <Route path="/my-bookings" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('booking') ? whenFeatureDisabled('booking', '/dashboard') : role !== 'guest' ? <MyBookings /> : <Navigate to="/login" />} />
+              <Route path="/my-bookings" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('booking') ? whenFeatureDisabled('booking', '/dashboard') : role !== 'guest' ? <MyBookings /> : <GuestToLogin />} />
               <Route path="/court/:courtId" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('booking') ? whenFeatureDisabled('booking', role === 'guest' ? '/' : '/dashboard') : <CourtDetail />} />
-              <Route path="/tournaments" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('tournaments') ? whenFeatureDisabled('tournaments', role === 'guest' ? '/' : '/dashboard') : <Tournaments userRole={role !== 'guest' ? role : undefined} />} />
+              <Route path="/tournaments" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('tournaments') ? whenFeatureDisabled('tournaments', role === 'guest' ? '/' : '/dashboard') : role === 'guest' ? <div className="p-4 md:p-8 pt-24 md:pt-32 max-w-[1800px] mx-auto w-full"><Tournaments /></div> : <Tournaments userRole={role} />} />
               <Route path="/tournaments/:id" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('tournaments') ? whenFeatureDisabled('tournaments', role === 'guest' ? '/' : '/dashboard') : <TournamentPage />} />
-              <Route path="/coaches" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('coaches') ? whenFeatureDisabled('coaches', role === 'guest' ? '/' : '/dashboard') : role !== 'guest' ? <Coaches currentUserId={currentUserId} /> : <Navigate to="/" />} />
-              <Route path="/community" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('community') ? whenFeatureDisabled('community', role === 'guest' ? '/' : '/dashboard') : role !== 'guest' ? <Community posts={posts} setPosts={setPosts} followedUsers={followedUsers} onFollow={handleFollow} /> : <Navigate to="/login" />} />
-              <Route path="/groups" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('community') ? whenFeatureDisabled('community', role === 'guest' ? '/' : '/dashboard') : role !== 'guest' ? <Groups /> : <Navigate to="/" />} />
-              <Route path="/community/groups/:groupId" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('community') ? whenFeatureDisabled('community', role === 'guest' ? '/' : '/dashboard') : role !== 'guest' ? <GroupDetail /> : <Navigate to="/" />} />
-              <Route path="/community/groups/:groupId/manage" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('community') ? whenFeatureDisabled('community', role === 'guest' ? '/' : '/dashboard') : role !== 'guest' ? <GroupManage /> : <Navigate to="/" />} />
-              <Route path="/partners" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('partners') ? whenFeatureDisabled('partners', '/dashboard') : role !== 'guest' ? <FindPartners followedUsers={followedUsers} onFollow={handleFollow} /> : <Navigate to="/" />} />
-              <Route path="/messages" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('messages') ? whenFeatureDisabled('messages', '/dashboard') : role !== 'guest' ? <DirectMessages onConversationRead={handleDmConversationRead} /> : <Navigate to="/" />} />
+              <Route path="/coaches" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('coaches') ? whenFeatureDisabled('coaches', role === 'guest' ? '/' : '/dashboard') : role !== 'guest' ? <Coaches currentUserId={currentUserId} /> : <GuestToLogin />} />
+              <Route path="/community" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('community') ? whenFeatureDisabled('community', role === 'guest' ? '/' : '/dashboard') : role !== 'guest' ? <Community posts={posts} setPosts={setPosts} followedUsers={followedUsers} onFollow={handleFollow} /> : <GuestToLogin />} />
+              <Route path="/groups" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('community') ? whenFeatureDisabled('community', role === 'guest' ? '/' : '/dashboard') : role !== 'guest' ? <Groups /> : <GuestToLogin />} />
+              <Route path="/community/groups/:groupId" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('community') ? whenFeatureDisabled('community', role === 'guest' ? '/' : '/dashboard') : role !== 'guest' ? <GroupDetail /> : <GuestToLogin />} />
+              <Route path="/community/groups/:groupId/manage" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('community') ? whenFeatureDisabled('community', role === 'guest' ? '/' : '/dashboard') : role !== 'guest' ? <GroupManage /> : <GuestToLogin />} />
+              <Route path="/partners" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('partners') ? whenFeatureDisabled('partners', '/dashboard') : role !== 'guest' ? <FindPartners followedUsers={followedUsers} onFollow={handleFollow} /> : <GuestToLogin />} />
+              <Route path="/messages" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('messages') ? whenFeatureDisabled('messages', '/dashboard') : role !== 'guest' ? <DirectMessages onConversationRead={handleDmConversationRead} /> : <GuestToLogin />} />
               <Route
                 path="/others"
                 element={
                   isTwoFactorPending ? (
                     <Navigate to="/verify-2fa" replace />
                   ) : role === 'guest' ? (
-                    <Navigate to="/" />
+                    <GuestToLogin />
                   ) : !hasOthersHubAccess ? (
                     <Navigate to="/dashboard" replace />
                   ) : (
@@ -1736,14 +1761,14 @@ const NavigationHandler: React.FC<{
               <Route path="/teams" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('teams') ? whenFeatureDisabled('teams', role === 'guest' ? '/' : '/dashboard') : role !== 'guest' ? <SquadsList userRole={role} isSidebarCollapsed={isSidebarCollapsed} /> : <Navigate to={`/login?redirect=${encodeURIComponent('/teams')}`} replace />} />
               <Route path="/teams/:squadId" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('teams') ? whenFeatureDisabled('teams', role === 'guest' ? '/' : '/dashboard') : role !== 'guest' ? <SquadDetail /> : <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`} replace />} />
               <Route path="/teams/:squadId/invite/:inviteCode" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('teams') ? whenFeatureDisabled('teams', role === 'guest' ? '/' : '/dashboard') : role !== 'guest' ? <SquadDetail /> : <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname)}`} replace />} />
-              <Route path="/achievements" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role !== 'guest' ? <Achievements userRole={role} isSidebarCollapsed={isSidebarCollapsed} /> : <Navigate to="/" />} />
-              <Route path="/profile" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('profile') ? whenFeatureDisabled('profile', '/dashboard') : role !== 'guest' ? <Profile userRole={role} authorizedProRoles={authorizedProRoles} currentUserId={currentUserId} followedUsers={followedUsers} onFollow={handleFollow} posts={posts} setPosts={setPosts} onRoleSwitch={handleRoleSwitch} /> : <Navigate to="/" />} />
-              <Route path="/profile/:userId" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('profile') ? whenFeatureDisabled('profile', '/dashboard') : role !== 'guest' ? <Profile userRole={role} authorizedProRoles={authorizedProRoles} currentUserId={currentUserId} followedUsers={followedUsers} onFollow={handleFollow} posts={posts} setPosts={setPosts} onRoleSwitch={handleRoleSwitch} /> : <Navigate to="/" />} />
+              <Route path="/achievements" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role !== 'guest' ? <Achievements userRole={role} isSidebarCollapsed={isSidebarCollapsed} /> : <GuestToLogin />} />
+              <Route path="/profile" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('profile') ? whenFeatureDisabled('profile', '/dashboard') : role !== 'guest' ? <Profile userRole={role} authorizedProRoles={authorizedProRoles} currentUserId={currentUserId} followedUsers={followedUsers} onFollow={handleFollow} posts={posts} setPosts={setPosts} onRoleSwitch={handleRoleSwitch} /> : <GuestToLogin />} />
+              <Route path="/profile/:userId" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('profile') ? whenFeatureDisabled('profile', '/dashboard') : role !== 'guest' ? <Profile userRole={role} authorizedProRoles={authorizedProRoles} currentUserId={currentUserId} followedUsers={followedUsers} onFollow={handleFollow} posts={posts} setPosts={setPosts} onRoleSwitch={handleRoleSwitch} /> : <GuestToLogin />} />
 
               {/* Specialized Coach Routes */}
-              <Route path="/students" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role !== 'guest' ? <Students currentUserId={currentUserId} /> : <Navigate to="/login" />} />
-              <Route path="/clinics" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role !== 'guest' ? <Clinics currentUserId={currentUserId} /> : <Navigate to="/login" />} />
-              <Route path="/schedule" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role !== 'guest' ? <Schedule currentUserId={currentUserId} /> : <Navigate to="/login" />} />
+              <Route path="/students" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role !== 'guest' ? <Students currentUserId={currentUserId} /> : <GuestToLogin />} />
+              <Route path="/clinics" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role !== 'guest' ? <Clinics currentUserId={currentUserId} /> : <GuestToLogin />} />
+              <Route path="/schedule" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role !== 'guest' ? <Schedule currentUserId={currentUserId} /> : <GuestToLogin />} />
 
               <Route path="/court-manager" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role !== 'guest' ? <CourtManagerLayout /> : <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`} replace />}>
                 <Route index element={!feat('locations') ? <FeatureUnavailable featureName="locations" /> : <CourtManagerOverviewPage />} />
@@ -1764,11 +1789,13 @@ const NavigationHandler: React.FC<{
               <Route path="/transactions" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : isCourtOwnerRole ? <Transactions /> : <Navigate to="/" />} />
               <Route path="/court-pricing" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : isCourtOwnerRole ? <CourtPricing /> : <Navigate to="/" />} />
               <Route path="/court-policies" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : !feat('court-policies') ? whenFeatureDisabled('court-policies', '/dashboard') : isCourtOwnerRole ? <LocationPolicies /> : <Navigate to="/" />} />
-              <Route path="/application-status" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role !== 'guest' ? <ApplicationStatus /> : <Navigate to="/login" />} />
+              <Route path="/application-status" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role !== 'guest' ? <ApplicationStatus /> : <GuestToLogin />} />
 
               <Route path="/admin" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role === 'ADMIN' ? <AdminDashboard applications={applications} onApprove={onApprove} onReject={onReject} currentAdminRole={role} /> : role === 'guest' ? <Navigate to="/login" replace /> : <Navigate to="/dashboard" replace />} />
               <Route path="/admin/achievements" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role === 'ADMIN' ? <AchievementsManager /> : role === 'guest' ? <Navigate to="/login" replace /> : <Navigate to="/dashboard" replace />} />
               <Route path="/admin/tournaments/:tournamentId" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role === 'ADMIN' ? <AdminTournamentDetail /> : role === 'guest' ? <Navigate to="/login" replace /> : <Navigate to="/dashboard" replace />} />
+              <Route path="/admin/players/:playerId" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role === 'ADMIN' ? <PlayerJourneyPage /> : role === 'guest' ? <Navigate to="/login" replace /> : <Navigate to="/dashboard" replace />} />
+              <Route path="/admin/court-owners/:ownerId" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role === 'ADMIN' ? <AdminCourtOwnerDetail /> : role === 'guest' ? <Navigate to="/login" replace /> : <Navigate to="/dashboard" replace />} />
               <Route path="/admin/:section" element={isTwoFactorPending ? <Navigate to="/verify-2fa" replace /> : role === 'ADMIN' ? <AdminDashboard applications={applications} onApprove={onApprove} onReject={onReject} currentAdminRole={role} /> : role === 'guest' ? <Navigate to="/login" replace /> : <Navigate to="/dashboard" replace />} />
               <Route path="/p/:username/:bookingId" element={<PosterPage />} />
               <Route path="/achievements-admin" element={<Navigate to="/admin/achievements" replace />} />
@@ -1777,6 +1804,7 @@ const NavigationHandler: React.FC<{
               <Route path="/policy" element={<PrivacyPolicy />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </Suspense>
           </div>
         </div>
       </main>
@@ -2378,8 +2406,8 @@ const App: React.FC = () => {
         }
       }
 
-      // 4. Fetch dynamic social posts
-      const { data: dbPosts, error: postsError } = await supabase
+      // 4. Fetch dynamic social posts — members only (/community requires login; this effect re-runs on sign-in)
+      const { data: dbPosts, error: postsError } = !session?.user ? ({ data: null, error: null } as any) : await supabase
         .from('community_posts')
         .select(`
           *,

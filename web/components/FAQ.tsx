@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import ReactDOM from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ChevronDown, HelpCircle, Sparkles, BookOpen, MessageCircle, Mail, Search, TrendingUp, Clock, CheckCircle2, User, AlertCircle, X } from 'lucide-react';
 import { supabase } from '../services/supabase';
 import useSEO from '../hooks/useSEO';
@@ -10,8 +10,8 @@ const FAQ_ITEMS = [
     category: "Getting Started",
     questions: [
       {
-        question: "What is Pickleplay?",
-        answer: "Pickleplay is the premier digital platform for the Philippine pickleball community, connecting players, coaches, and court owners. We provide a seamless ecosystem for booking courts, finding coaches, joining tournaments, and staying updated with the latest news."
+        question: "What is PicklePlay?",
+        answer: "PicklePlay is the premier digital platform for the Philippine pickleball community, connecting players, coaches, and court owners. We provide a seamless ecosystem for booking courts, finding coaches, joining tournaments, and staying updated with the latest news."
       },
       {
         question: "I'm a new pickleball player. How do I get started?",
@@ -19,7 +19,7 @@ const FAQ_ITEMS = [
       },
       {
         question: "What equipment do I need?",
-        answer: "To start playing, you'll need a pickleball paddle, some pickleballs (indoor or outdoor depending on the court), and standard court shoes. Many venues also offer equipment rentals. Check out our 'Pro Shop' for high-quality gear curated for PH players."
+        answer: "To start playing, you'll need a pickleball paddle, some pickleballs (indoor or outdoor depending on the court), and standard court shoes. Many venues also offer equipment rentals."
       }
     ]
   },
@@ -28,15 +28,15 @@ const FAQ_ITEMS = [
     questions: [
       {
         question: "How do I book a court?",
-        answer: "Simply use our 'Locate' search on the homepage or head to the 'Booking' page. You can filter by region (Luzon, Visayas, Mindanao) or city, view available time slots, and book your court in just a few clicks."
+        answer: "Use the 'Locate' search on the homepage or head to the 'Booking' page. Search by court name or city, or browse the map, then pick an available time slot and book your court in just a few clicks."
       },
       {
         question: "How do I cancel or reschedule a booking?",
-        answer: "Go to 'My Bookings' in your dashboard, select the booking you want to modify, and choose either 'Reschedule' or 'Cancel'. Please note our cancellation policy: cancellations made 24 hours before the booking time are eligible for a full refund."
+        answer: "Go to 'My Bookings', open the booking and choose 'Cancel'. To move to a different time, cancel and book a new slot. Cancellation and refund rules are set by each court owner, so check the court's policies before you book."
       },
       {
         question: "What payment methods do you accept?",
-        answer: "We accept various payment methods including credit/debit cards, GCash, PayMaya, and bank transfers. All transactions are secured and encrypted for your safety."
+        answer: "Payment options are set by each court owner. Venues on PicklePlay accept GCash, Maya, or cash paid at the venue; the options for a court are shown when you book. Card payments are not available yet."
       }
     ]
   },
@@ -44,7 +44,7 @@ const FAQ_ITEMS = [
     category: "Professional Accounts",
     questions: [
       {
-        question: "How do I become a certified coach on Pickleplay?",
+        question: "How do I become a certified coach on PicklePlay?",
         answer: "Navigate to your Dashboard and click on 'PRO UPGRADE'. Submit your coaching certification, valid government ID, and professional experience documents. Our team will review your application within 3-5 business days."
       },
       {
@@ -65,11 +65,11 @@ const FAQ_ITEMS = [
     category: "Features & Tools",
     questions: [
       {
-        question: "Can I track my DUPR rating on Pickleplay?",
+        question: "Can I track my DUPR rating on PicklePlay?",
         answer: "Yes! Players can manually log their DUPR rating from the Dashboard. Click on 'Log DUPR' and enter your current rating. Your rating history will be tracked and displayed in your performance chart."
       },
       {
-        question: "How do tournaments work on Pickleplay?",
+        question: "How do tournaments work on PicklePlay?",
         answer: "Browse available tournaments in the 'Tournaments' section. You can filter by location, skill level, and date. Register for tournaments that match your skill level, pay the entry fee, and receive updates about brackets and schedules."
       },
       {
@@ -87,7 +87,7 @@ const FAQ_ITEMS = [
     questions: [
       {
         question: "How do I contact support?",
-        answer: "For assistance, you can reach our support team through the contact form on our website, email us at support@pickleplay.ph, or use the in-app messaging feature. We typically respond within 24 hours during business days."
+        answer: "Use the Contact Support form at the bottom of this page, email us at phpickleplay@gmail.com, or message us on Facebook (facebook.com/pickleplayofficial). We aim to reply within one business day."
       }
     ]
   }
@@ -172,7 +172,7 @@ const FAQ: React.FC = () => {
         show: true,
         type: 'error',
         title: 'Submission Failed',
-        message: `Failed to submit your request: ${err.message}. Please try again or email us directly at support@pickleplay.ph`
+        message: `Failed to submit your request: ${err.message}. Please try again or email us directly at phpickleplay@gmail.com`
       });
     } finally {
       setIsSubmitting(false);
@@ -222,37 +222,28 @@ const FAQ: React.FC = () => {
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
         <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm hover:border-slate-300 transition-all group relative">
-          <div className="absolute top-4 right-4 text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider bg-blue-50 text-blue-600">
-            <span>Live</span>
-          </div>
           <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-blue-50 mb-4 group-hover:scale-105 transition-transform">
             <BookOpen className="text-blue-600" size={24} />
           </div>
-          <h3 className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">Total Articles</h3>
+          <h3 className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">Questions answered</h3>
           <p className="text-4xl font-black text-slate-900 tracking-tighter">{totalQuestions}</p>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm hover:border-slate-300 transition-all group relative">
-          <div className="absolute top-4 right-4 text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider bg-lime-50 text-lime-600">
-            <span>Fast</span>
-          </div>
+        <a href="mailto:phpickleplay@gmail.com" className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm hover:border-slate-300 transition-all group relative block">
           <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-purple-50 mb-4 group-hover:scale-105 transition-transform">
             <Clock className="text-purple-600" size={24} />
           </div>
-          <h3 className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">Response Time</h3>
-          <p className="text-4xl font-black text-slate-900 tracking-tighter">24h</p>
-        </div>
+          <h3 className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">Still stuck? Email us</h3>
+          <p className="text-lg md:text-xl font-black text-slate-900 tracking-tight break-all">phpickleplay@gmail.com</p>
+        </a>
 
-        <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm hover:border-slate-300 transition-all group relative">
-          <div className="absolute top-4 right-4 text-[9px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider bg-green-50 text-green-600">
-            <span>100%</span>
-          </div>
+        <Link to="/guides" className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm hover:border-slate-300 transition-all group relative block">
           <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-lime-50 mb-4 group-hover:scale-105 transition-transform">
             <CheckCircle2 className="text-lime-600" size={24} />
           </div>
-          <h3 className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">Satisfaction</h3>
-          <p className="text-4xl font-black text-slate-900 tracking-tighter">High</p>
-        </div>
+          <h3 className="text-slate-500 text-[10px] font-bold uppercase tracking-wider mb-1">New to pickleball?</h3>
+          <p className="text-lg md:text-xl font-black text-slate-900 tracking-tight">Read the beginner guides →</p>
+        </Link>
       </div>
 
       {/* Search & Filter Section */}

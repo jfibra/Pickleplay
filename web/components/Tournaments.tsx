@@ -5,6 +5,7 @@ import { supabase } from '../services/supabase';
 import { Tournament, TournamentCategory, TournamentFormat, TournamentEventType, UserRole } from '../types';
 import { fetchTournaments as fetchTournamentsService, registerPlayer, withdrawRegistration } from '../services/tournaments';
 import useSEO from '../hooks/useSEO';
+import { formatTournamentTime, getTournamentDisplayStatus } from '../lib/tournamentDisplay';
 
 const DEMO_TOURNAMENTS: (Tournament & { isJoined?: boolean; registrationStatus?: string })[] = [
     {
@@ -159,7 +160,12 @@ const Tournaments: React.FC<{ userRole?: UserRole }> = ({ userRole }) => {
             const matchesSearch = !searchQuery.trim() || t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 t.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 t.description?.toLowerCase().includes(searchQuery.toLowerCase());
-            const matchesFilter = filter === 'All' || t.status === filter.toUpperCase();
+            const displayStatus = getTournamentDisplayStatus(t);
+            const matchesFilter = filter === 'All'
+                ? displayStatus !== 'CANCELLED' || showMyOnly
+                : filter === 'Completed'
+                    ? displayStatus === 'COMPLETED' || displayStatus === 'ENDED'
+                    : displayStatus === filter.toUpperCase();
             const matchesCategory = categoryFilter === 'all' || t.category === categoryFilter;
             const matchesFormat = formatFilter === 'all' || t.format === formatFilter;
             const matchesEventType = eventTypeFilter === 'all' || t.eventType === eventTypeFilter;
@@ -180,8 +186,12 @@ const Tournaments: React.FC<{ userRole?: UserRole }> = ({ userRole }) => {
                     return pb - pa;
                 }
                 case 'date_asc':
-                default:
-                    return new Date(a.date).getTime() - new Date(b.date).getTime();
+                default: {
+                    const rank = (t: typeof a) => (['UPCOMING', 'LIVE'].includes(getTournamentDisplayStatus(t)) ? 0 : 1);
+                    return rank(a) - rank(b) || (rank(a) === 0
+                        ? new Date(a.date).getTime() - new Date(b.date).getTime()
+                        : new Date(b.date).getTime() - new Date(a.date).getTime());
+                }
             }
         });
 
@@ -406,6 +416,7 @@ const TournamentJoinCard: React.FC<{
     userRole?: UserRole,
     onManage?: () => void
 }> = ({ tournament, onJoin, onLeave, onClick, userRole, onManage }) => {
+    const displayStatus = getTournamentDisplayStatus(tournament);
     const isFull = (tournament.registeredCount || 0) >= (tournament.maxPlayers || 0);
     const regMode = tournament.registrationMode || 'player';
     const isSquadOnly = regMode === 'squad';
@@ -437,6 +448,7 @@ const TournamentJoinCard: React.FC<{
       LIVE: 'bg-lime-500 text-slate-950',
       COMPLETED: 'bg-slate-400 text-white',
       CANCELLED: 'bg-rose-500 text-white',
+      ENDED: 'bg-slate-500 text-white',
     };
 
     return (
@@ -450,7 +462,7 @@ const TournamentJoinCard: React.FC<{
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
                 <div className="absolute bottom-3 left-3 flex gap-1.5 flex-wrap">
-                    <span className={`px-2 py-1 rounded-full text-[7px] font-black uppercase tracking-wider ${statusColors[tournament.status] || 'bg-blue-600 text-white'}`}>{tournament.status}</span>
+                    <span className={`px-2 py-1 rounded-full text-[7px] font-black uppercase tracking-wider ${statusColors[displayStatus] || 'bg-blue-600 text-white'}`}>{displayStatus}</span>
                     <span className="bg-white text-slate-900 px-2 py-1 rounded-full text-[7px] font-black uppercase tracking-wider">{tournament.skillLevel}</span>
                     {tournament.isFeatured && (
                         <span className="bg-yellow-400 text-yellow-900 px-2 py-1 rounded-full text-[7px] font-black uppercase tracking-wider flex items-center gap-0.5">
@@ -479,8 +491,8 @@ const TournamentJoinCard: React.FC<{
                         <Calendar size={14} className="text-blue-600 flex-shrink-0" />
                         <div className="flex-1 min-w-0">
                           <span className="text-[10px] font-bold uppercase truncate block">{new Date(tournament.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                          {tournament.startTime && (
-                            <span className="text-[9px] text-slate-400 font-bold block">Starts {new Date(tournament.startTime).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</span>
+                          {formatTournamentTime(tournament.startTime, tournament.date) && (
+                            <span className="text-[9px] text-slate-400 font-bold block">Starts {formatTournamentTime(tournament.startTime, tournament.date)}</span>
                           )}
                         </div>
                     </div>
@@ -503,9 +515,9 @@ const TournamentJoinCard: React.FC<{
                       🏆 {formatLabel[tournament.format] || tournament.format.replace('_', ' ')}
                     </span>
                   )}
-                  {tournament.checkInTime && (
+                  {formatTournamentTime(tournament.checkInTime, tournament.date) && (
                     <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-lg text-[8px] font-black uppercase tracking-wider">
-                      📋 Check-in {new Date(tournament.checkInTime).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                      📋 Check-in {formatTournamentTime(tournament.checkInTime, tournament.date)}
                     </span>
                   )}
                 </div>
@@ -526,7 +538,7 @@ const TournamentJoinCard: React.FC<{
                     </div>
                     {/* Urgency indicators */}
                     <div className="flex items-center justify-between mt-2 min-h-[18px]">
-                      {isFillingFast && !isFull && tournament.status === 'UPCOMING' && (
+                      {isFillingFast && !isFull && displayStatus === 'UPCOMING' && (
                         <span className="flex items-center gap-1 text-[9px] font-black text-rose-600">
                           <Flame size={11} /> Only {spotsLeft} spot{spotsLeft !== 1 ? 's' : ''} left!
                         </span>
@@ -534,10 +546,10 @@ const TournamentJoinCard: React.FC<{
                       {isFull && (
                         <span className="text-[9px] font-black text-rose-500 uppercase tracking-wider">Full</span>
                       )}
-                      {!isFillingFast && !isFull && spotsLeft > 0 && tournament.status === 'UPCOMING' && (
+                      {!isFillingFast && !isFull && spotsLeft > 0 && displayStatus === 'UPCOMING' && (
                         <span className="text-[9px] font-bold text-slate-400">{spotsLeft} spots available</span>
                       )}
-                      {deadline && !deadlinePassed && tournament.status === 'UPCOMING' && (
+                      {deadline && !deadlinePassed && displayStatus === 'UPCOMING' && (
                         <span className={`flex items-center gap-1 text-[9px] font-black ${
                           deadlineSoon ? 'text-amber-600' : 'text-slate-400'
                         }`}>
@@ -548,7 +560,7 @@ const TournamentJoinCard: React.FC<{
                           }
                         </span>
                       )}
-                      {deadlinePassed && tournament.status === 'UPCOMING' && (
+                      {deadlinePassed && displayStatus === 'UPCOMING' && (
                         <span className="text-[9px] font-black text-slate-400">Registration closed</span>
                       )}
                     </div>
@@ -581,15 +593,15 @@ const TournamentJoinCard: React.FC<{
                         </div>
                         <button
                             onClick={e => { e.stopPropagation(); onJoin(); }}
-                            disabled={isFull || tournament.status !== 'UPCOMING' || deadlinePassed || isSquadBlocked}
-                            className={`flex-1 h-11 rounded-xl transition-all flex items-center justify-center font-black text-[9px] uppercase tracking-wide ${isFull || tournament.status !== 'UPCOMING' || deadlinePassed || isSquadBlocked
+                            disabled={isFull || displayStatus !== 'UPCOMING' || deadlinePassed || isSquadBlocked}
+                            className={`flex-1 h-11 rounded-xl transition-all flex items-center justify-center font-black text-[9px] uppercase tracking-wide ${isFull || displayStatus !== 'UPCOMING' || deadlinePassed || isSquadBlocked
                                 ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                                 : 'bg-slate-900 text-white hover:bg-indigo-600'
                             }`}
                         >
                             {isFull
                                 ? 'Sold Out'
-                                : (tournament.status !== 'UPCOMING' || deadlinePassed)
+                                : (displayStatus !== 'UPCOMING' || deadlinePassed)
                                     ? 'Closed'
                                     : isSquadBlocked
                                         ? 'Need a Squad'
@@ -618,15 +630,15 @@ const TournamentJoinCard: React.FC<{
                 ) : (
                     <button
                         onClick={e => { e.stopPropagation(); onJoin(); }}
-                        disabled={isFull || tournament.status !== 'UPCOMING' || deadlinePassed || isSquadBlocked}
-                        className={`w-full h-11 rounded-xl font-black text-xs uppercase tracking-wide transition-all mt-auto flex items-center justify-center gap-2 ${isFull || tournament.status !== 'UPCOMING' || deadlinePassed || isSquadBlocked
+                        disabled={isFull || displayStatus !== 'UPCOMING' || deadlinePassed || isSquadBlocked}
+                        className={`w-full h-11 rounded-xl font-black text-xs uppercase tracking-wide transition-all mt-auto flex items-center justify-center gap-2 ${isFull || displayStatus !== 'UPCOMING' || deadlinePassed || isSquadBlocked
                             ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                             : 'bg-lime-400 hover:bg-lime-300 text-slate-950 shadow-lg shadow-lime-100 hover:-translate-y-0.5'
                             }`}
                     >
                         {isFull
                             ? 'Sold Out'
-                            : (tournament.status !== 'UPCOMING' || deadlinePassed)
+                            : (displayStatus !== 'UPCOMING' || deadlinePassed)
                                 ? 'Closed'
                                 : isSquadBlocked
                                     ? 'Need a Squad'

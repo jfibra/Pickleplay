@@ -3,7 +3,6 @@
 
 User-agent: *
 Allow: /
-Allow: /shop
 Allow: /news
 Allow: /academy
 Allow: /guides
@@ -31,5 +30,6 @@ Disallow: /students
 Disallow: /clinics
 Disallow: /schedule
 Disallow: /others
+Disallow: /shop
 
 Sitemap: https://www.pickleplay.ph/sitemap.xml

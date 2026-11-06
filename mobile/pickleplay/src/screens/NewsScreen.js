@@ -15,6 +15,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '../constants/Colors';
+import { USE_MOCKS } from '../constants/env';
 
 const HOMESPH_NEWS_API_URL = 'https://api.homes.ph';
 const HOMESPH_NEWS_API_KEY = '1nZKZvIK2EPpCIykBheHylG5tuGCJ5wVSSSwui2ESxhZwDrqwNiWxQJOCyr2XEW6';
@@ -101,8 +102,8 @@ const NewsScreen = ({ navigation }) => {
       setLoading(true);
       let newsData = null;
 
-      // Web environment: Skip API (CORS issues), use mock data
-      if (Platform.OS === 'web') {
+      // Web environment: Skip API (CORS issues), use mock data. Prototype mode makes no network calls.
+      if (Platform.OS === 'web' || USE_MOCKS) {
         console.log(`🌐 Web environment: Using mock data (API testing for native only)`);
         setAllNews(MOCK_NEWS);
         setLoading(false);

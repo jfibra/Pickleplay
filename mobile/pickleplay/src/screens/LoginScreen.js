@@ -17,6 +17,8 @@ import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
 import Colors from '../constants/Colors';
 import { useAuth } from '../contexts/AuthContext';
+import { USE_MOCKS } from '../constants/env';
+import { MOCK_ACCOUNTS } from '../mocks/accounts';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -187,6 +189,27 @@ const LoginScreen = ({ navigation }) => {
           <View style={styles.formContainer}>
             <Text style={styles.formTitle}>Welcome Back</Text>
             <Text style={styles.formSubtitle}>Sign in to continue your journey</Text>
+
+            {/* Prototype accounts (EXPO_PUBLIC_USE_MOCKS=true only) */}
+            {USE_MOCKS && (
+              <View style={styles.mockPanel}>
+                <Text style={styles.mockTitle}>Prototype mode: tap an account to fill the form</Text>
+                <View style={styles.mockChips}>
+                  {Object.entries(MOCK_ACCOUNTS).map(([role, account]) => (
+                    <TouchableOpacity
+                      key={role}
+                      style={styles.mockChip}
+                      onPress={() => {
+                        setEmail(account.email);
+                        setPassword('password');
+                      }}
+                    >
+                      <Text style={styles.mockChipText}>{role}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
 
             {/* Email Input */}
             <View style={styles.inputWrapper}>
@@ -364,6 +387,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.slate400,
     marginBottom: 24,
+  },
+  mockPanel: {
+    borderWidth: 1,
+    borderColor: Colors.lime400 + '66',
+    borderStyle: 'dashed',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 20,
+  },
+  mockTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.lime400,
+    marginBottom: 10,
+  },
+  mockChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  mockChip: {
+    backgroundColor: Colors.slate800,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  mockChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.white,
+    textTransform: 'capitalize',
   },
   inputWrapper: {
     marginBottom: 18,

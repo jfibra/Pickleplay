@@ -42,12 +42,13 @@ const PrivacyPolicy: React.FC = () => {
             </div>
           </div>
           <p className="text-sm text-slate-500 font-medium">
-            Effective Date: February 19, 2026
+            Effective Date: November 6, 2026
           </p>
           <p className="mt-4 text-slate-600 leading-relaxed">
             PicklePlay Philippines ("we," "us," "our," or "Company") is committed to protecting your privacy.
             This Privacy Policy explains how we collect, use, disclose, and otherwise handle your information when
-            you use our website and mobile applications.
+            you use our website and mobile applications, and how you can exercise your rights under the Data Privacy
+            Act of 2012 (Republic Act No. 10173) and its Implementing Rules and Regulations.
           </p>
         </div>
 
@@ -58,10 +59,10 @@ const PrivacyPolicy: React.FC = () => {
             <ul className="mt-3 space-y-2 pl-5">
               {[
                 'Personal identification information (name, email, phone number, etc.) when you register or interact with our services',
-                'Court booking information and payment details',
+                'Court booking information and payment details (such as the payment method and reference number you provide)',
                 'Profile information including photos and preferences',
                 'Usage data through cookies and analytics tools',
-                'Information collected via OAuth providers (Google, Facebook)',
+                'Basic profile information from sign-in providers such as Google, if you choose to sign in with them',
               ].map((item, i) => (
                 <li key={i} className="text-slate-600 leading-relaxed flex items-start gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0" />
@@ -103,22 +104,53 @@ const PrivacyPolicy: React.FC = () => {
           <div>
             <h2 className="text-lg font-extrabold text-slate-900 tracking-tight mb-3">4. Third-Party Services</h2>
             <p className="text-slate-600 leading-relaxed">
-              Our platform uses third-party services including Supabase for authentication and data storage,
-              and payment processors for handling transactions. These providers have their own privacy policies
-              governing how they handle your data.
+              Our platform uses third-party service providers, including Supabase for authentication and data storage,
+              hosting and content-delivery providers, email delivery services, and map providers. When you book a court,
+              your booking details are shared with that court's owner and staff, who receive payment directly (for example
+              through GCash, Maya or cash at the venue). These parties process data under their own privacy policies and,
+              where they act on our behalf, only as needed to provide the Service.
             </p>
           </div>
 
           <div>
-            <h2 className="text-lg font-extrabold text-slate-900 tracking-tight mb-3">5. User Rights</h2>
+            <h2 className="text-lg font-extrabold text-slate-900 tracking-tight mb-3">5. Your Rights as a Data Subject</h2>
             <p className="text-slate-600 leading-relaxed">
-              You have the right to access, update, or delete your personal information at any time.
-              You can manage your account settings or contact us to exercise these rights.
+              Under the Data Privacy Act of 2012, you have the right to:
+            </p>
+            <ul className="mt-3 space-y-2 pl-5">
+              {[
+                'Be informed about how your personal data is collected and processed',
+                'Access your personal data and obtain a copy of it',
+                'Object to processing, including for direct marketing',
+                'Have inaccurate or incomplete data corrected',
+                'Have your data erased or blocked when it is no longer necessary or was processed unlawfully',
+                'Receive your data in a commonly used electronic format (data portability)',
+                'Be indemnified for damages caused by inaccurate, unlawfully obtained or unauthorized use of your data',
+                'File a complaint with the National Privacy Commission (privacy.gov.ph)',
+              ].map((item, i) => (
+                <li key={i} className="text-slate-600 leading-relaxed flex items-start gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 shrink-0" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-slate-600 leading-relaxed">
+              You can update most information in your account settings. To exercise any other right, contact our
+              Data Protection Officer using the details in section 8.
             </p>
           </div>
 
           <div>
-            <h2 className="text-lg font-extrabold text-slate-900 tracking-tight mb-3">6. Cookies</h2>
+            <h2 className="text-lg font-extrabold text-slate-900 tracking-tight mb-3">6. Data Retention</h2>
+            <p className="text-slate-600 leading-relaxed">
+              We keep your personal data only for as long as your account is active or as needed to provide the
+              Service, resolve disputes, and meet legal, tax and accounting obligations. When it is no longer needed,
+              we delete or anonymize it.
+            </p>
+          </div>
+
+          <div>
+            <h2 className="text-lg font-extrabold text-slate-900 tracking-tight mb-3">7. Cookies</h2>
             <p className="text-slate-600 leading-relaxed">
               We use cookies and similar tracking technologies to enhance your experience. Most web browsers
               allow you to control cookies through their settings.
@@ -126,15 +158,17 @@ const PrivacyPolicy: React.FC = () => {
           </div>
 
           <div>
-            <h2 className="text-lg font-extrabold text-slate-900 tracking-tight mb-3">7. Contact Us</h2>
+            <h2 className="text-lg font-extrabold text-slate-900 tracking-tight mb-3">8. Data Protection Officer &amp; Contact</h2>
             <p className="text-slate-600 leading-relaxed">
-              If you have any questions about this Privacy Policy or our privacy practices,
-              please contact us at: <strong className="text-slate-900">phpickleplay@gmail.com</strong>
+              For questions about this Privacy Policy, or to exercise your rights as a data subject, contact our
+              Data Protection Officer at{' '}
+              <a href="mailto:phpickleplay@gmail.com" className="font-bold text-slate-900 hover:text-blue-600">phpickleplay@gmail.com</a>.
+              We will respond within the period required by law.
             </p>
           </div>
 
           <div>
-            <h2 className="text-lg font-extrabold text-slate-900 tracking-tight mb-3">8. Policy Updates</h2>
+            <h2 className="text-lg font-extrabold text-slate-900 tracking-tight mb-3">9. Policy Updates</h2>
             <p className="text-slate-600 leading-relaxed">
               We may update this Privacy Policy from time to time. We will notify you of any changes by
               updating the "Last Updated" date of this Privacy Policy.
@@ -146,7 +180,7 @@ const PrivacyPolicy: React.FC = () => {
         <div className="mt-16 pt-8 border-t border-slate-200">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">
-              Last Updated: February 19, 2026
+              Last Updated: November 6, 2026
             </p>
             <div className="flex items-center gap-4">
               <Link to="/terms" className="text-xs font-bold text-blue-600 hover:text-blue-700 transition-colors">
@@ -161,7 +195,7 @@ const PrivacyPolicy: React.FC = () => {
           <div className="mt-6 flex items-center gap-2.5">
             <img src="/images/PicklePlayLogo.jpg" alt="PicklePlay" className="w-6 h-6 rounded-lg object-contain" />
             <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em]">
-              © 2026 PicklePlay Philippines. All rights reserved.
+              © {new Date().getFullYear()} PicklePlay Philippines. All rights reserved.
             </p>
           </div>
         </div>

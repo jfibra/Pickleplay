@@ -1,8 +1,10 @@
 // Supabase Configuration for PicklePlay Mobile App
 // These values are safe to expose in the client - they only allow authenticated access
 
-export const SUPABASE_URL = 'https://hdruhslfadbaadtgvetf.supabase.co';
-export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhkcnVoc2xmYWRiYWFkdGd2ZXRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk5NTEwMTUsImV4cCI6MjA4NTUyNzAxNX0.qmN6_w4J9Y6Jof6RVrEHq3cW8-EE8Bietq8_U4OVehM';
+// EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY point the app at another project
+// (e.g. staging); without them it uses production. Prototype mode (src/constants/env.js) uses neither.
+export const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://hdruhslfadbaadtgvetf.supabase.co';
+export const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhkcnVoc2xmYWRiYWFkdGd2ZXRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk5NTEwMTUsImV4cCI6MjA4NTUyNzAxNX0.qmN6_w4J9Y6Jof6RVrEHq3cW8-EE8Bietq8_U4OVehM';
 
 // Backend API base URL (used for QR login approval)
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:5001';

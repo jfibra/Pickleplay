@@ -1,6 +1,6 @@
 
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import ReactDOM from 'react-dom';
 import { useNavigate, Link } from 'react-router-dom';
 import {
@@ -52,9 +52,12 @@ import { UserRole, ProfessionalApplication, Match } from '../types';
 import { Skeleton } from './ui/Skeleton';
 import { calculateGraceDaysRemaining, isInGracePeriod, isHardLocked } from '../services/subscriptions';
 import { getPendingRatings, getMatchDetails, updateMatchStatus } from '../services/matches';
-import MatchVerification from './MatchVerification';
 import PlayerRatingModal from './PlayerRatingModal';
-import CourtOwnerVerificationForm from './court-owner/CourtOwnerVerificationForm';
+import { lazyWithReload } from '../lib/lazyWithReload';
+
+// Opened on demand; they pull in the QR scanner and map libraries.
+const MatchVerification = lazyWithReload(() => import('./MatchVerification'));
+const CourtOwnerVerificationForm = lazyWithReload(() => import('./court-owner/CourtOwnerVerificationForm'));
 import { getCurrentPendingCourtManagerContext, type PendingCourtManagerContext } from '../services/courtManagers';
 
 const PERFORMANCE_DATA = [
@@ -2104,21 +2107,25 @@ const Dashboard: React.FC<DashboardProps> = ({ userRole, onSubmitApplication, se
         document.body
       )}
 
-      {/* Court Owner Verification Form */}
-      <CourtOwnerVerificationForm
-        open={showVerificationForm}
-        onClose={() => setShowVerificationForm(false)}
-        onSubmitApplication={onSubmitApplication}
-        onSuccess={() => {
-          setShowVerificationForm(false);
-          setShowStatusModal({
-            show: true,
-            type: 'success',
-            title: '🎉 Application Submitted!',
-            message: 'Your court owner verification documents have been submitted successfully! Our team will review everything within 3–5 business days. You can track your application status anytime.'
-          });
-        }}
-      />
+      {/* Court Owner Verification Form — mounted only while open; it reloads its saved draft on open */}
+      {showVerificationForm && (
+        <Suspense fallback={null}>
+          <CourtOwnerVerificationForm
+            open={showVerificationForm}
+            onClose={() => setShowVerificationForm(false)}
+            onSubmitApplication={onSubmitApplication}
+            onSuccess={() => {
+              setShowVerificationForm(false);
+              setShowStatusModal({
+                show: true,
+                type: 'success',
+                title: '🎉 Application Submitted!',
+                message: 'Your court owner verification documents have been submitted successfully! Our team will review everything within 3–5 business days. You can track your application status anytime.'
+              });
+            }}
+          />
+        </Suspense>
+      )}
 
       {/* Log DUPR Modal */}
       {
@@ -2351,11 +2358,13 @@ const Dashboard: React.FC<DashboardProps> = ({ userRole, onSubmitApplication, se
 
       {/* Match Verification Modal */}
       {isMatchVerificationOpen && ReactDOM.createPortal(
-        <MatchVerification
-          userId={currentUserId!}
-          onClose={() => setIsMatchVerificationOpen(false)}
-          onMatchVerified={handleMatchVerified}
-        />,
+        <Suspense fallback={null}>
+          <MatchVerification
+            userId={currentUserId!}
+            onClose={() => setIsMatchVerificationOpen(false)}
+            onMatchVerified={handleMatchVerified}
+          />
+        </Suspense>,
         document.body
       )}
 

@@ -136,12 +136,10 @@ export const getGuideBySlug = async (slug: string): Promise<{ success: boolean; 
 
         if (error) throw error;
 
-        // Increment view count
+        // Count the view server-side (Documentation/migrations/2026/11/06/20261106_guide_view_count_rpc.sql).
+            // Fire-and-forget: a failed counter must not block reading.
         if (data) {
-            await supabase
-                .from('guides')
-                .update({ view_count: (data.view_count || 0) + 1 })
-                .eq('id', data.id);
+            void supabase.rpc('increment_guide_view', { p_slug: slug }).then(() => undefined, () => undefined);
         }
 
         return { success: true, data };

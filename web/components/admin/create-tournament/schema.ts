@@ -196,6 +196,13 @@ export type CreateTournamentSubmitResult = {
   files: { banner: File | null };
 };
 
+// crypto.randomUUID only exists in secure contexts (HTTPS / localhost); this module
+// runs at app load, so without a fallback the app is blank over plain-http LAN IPs.
+const newDivisionId = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+
 export function createDivisionDraft(
   overrides?: Partial<DivisionFormValues>,
 ): DivisionFormValues {
@@ -206,7 +213,7 @@ export function createDivisionDraft(
   const autoName = buildCategoryName({ gender, skillBracket, ageBracket, eventType });
 
   return {
-    id: overrides?.id ?? crypto.randomUUID(),
+    id: overrides?.id ?? newDivisionId(),
     eventType,
     gender,
     skillBracket,
