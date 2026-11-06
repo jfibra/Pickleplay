@@ -53,8 +53,12 @@ const DEFAULT_TERMS_SECTIONS = [
     content: 'We may update these Terms from time to time. Continued use of the Service after changes constitutes acceptance of the updated Terms.',
   },
   {
-    title: '11. Contact',
-    content: 'For questions about these Terms, please contact us through the platform\'s support channels or email us at phpickleplay@gmail.com.',
+    title: '11. Governing Law',
+    content: 'These Terms are governed by the laws of the Republic of the Philippines.',
+  },
+  {
+    title: '12. Contact',
+    content: 'For questions about these Terms, email us at phpickleplay@gmail.com or use the Contact Support form on our FAQ page.',
   },
 ];
 
@@ -113,16 +117,20 @@ const TermsOfService: React.FC = () => {
               <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">Terms of Service</h1>
             </div>
           </div>
-          <p className="text-sm text-slate-500 font-medium">
-            Effective Date: February 18, 2026
-          </p>
-          <p className="mt-4 text-slate-600 leading-relaxed">
-            Welcome to PicklePlay Philippines. By creating an account and using our platform, you agree to the following terms and conditions.
-          </p>
+          {!loading && !remoteContent && (
+            <>
+              <p className="text-sm text-slate-500 font-medium">
+                Effective Date: February 18, 2026
+              </p>
+              <p className="mt-4 text-slate-600 leading-relaxed">
+                Welcome to PicklePlay Philippines. By creating an account and using our platform, you agree to the following terms and conditions.
+              </p>
+            </>
+          )}
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-20">
+          <div className="flex items-start justify-center pt-20 min-h-[75vh]">
             <Loader2 size={24} className="animate-spin text-blue-600" />
           </div>
         ) : remoteContent ? (
@@ -155,9 +163,11 @@ const TermsOfService: React.FC = () => {
         {/* Footer */}
         <div className="mt-16 pt-8 border-t border-slate-200">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">
-              Last Updated: February 18, 2026
-            </p>
+            {!remoteContent && (
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">
+                Last Updated: February 18, 2026
+              </p>
+            )}
             <div className="flex items-center gap-4">
               <Link to="/policy" className="text-xs font-bold text-blue-600 hover:text-blue-700 transition-colors">
                 Privacy Policy
@@ -171,7 +181,7 @@ const TermsOfService: React.FC = () => {
           <div className="mt-6 flex items-center gap-2.5">
             <img src="/images/PicklePlayLogo.jpg" alt="PicklePlay" className="w-6 h-6 rounded-lg object-contain" />
             <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em]">
-              © 2026 PicklePlay Philippines. All rights reserved.
+              © {new Date().getFullYear()} PicklePlay Philippines. All rights reserved.
             </p>
           </div>
         </div>

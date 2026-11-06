@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <!-- ── 🛡️ Security Meta Tags ──────────────────────────────────── -->
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
@@ -22,8 +22,9 @@
     <link rel="canonical" href="https://www.pickleplay.ph/">
 
     <!-- ── Favicon & Touch Icons ────────────────────────────────────── -->
-    <link rel="icon" type="image/jpeg" href="/images/PicklePlayLogo.jpg">
-    <link rel="apple-touch-icon" href="/images/PicklePlayLogo.jpg">
+    <link rel="icon" type="image/png" sizes="48x48" href="/images/favicon-48.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/images/favicon-192.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon.png">
 
     <!-- ── Open Graph (Facebook, Discord, Messenger, LinkedIn) ──────── -->
     <meta property="og:type" content="website">
@@ -33,10 +34,11 @@
     <meta property="og:title" content="PicklePlay Philippines – Find Pickleball Courts Near You & Play">
     <meta property="og:description"
         content="Find pickleball courts near you across the Philippines. Book courts in Manila, Cebu, Davao, join tournaments, and connect with players.">
-    <meta property="og:image" content="https://www.pickleplay.ph/images/PicklePlayLogo.jpg">
+    <meta property="og:image" content="https://www.pickleplay.ph/images/og-image.jpg">
+    <meta property="og:image:type" content="image/jpeg">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="PicklePlay Philippines – The Home of PH Pickleball">
+    <meta property="og:image:alt" content="PicklePlay Philippines – Find and book pickleball courts near you">
 
     <!-- ── Twitter / X Card ──────────────────────────────────────────── -->
     <meta name="twitter:card" content="summary_large_image">
@@ -44,7 +46,7 @@
     <meta name="twitter:title" content="PicklePlay Philippines – Find Pickleball Courts Near You & Play">
     <meta name="twitter:description"
         content="Find pickleball courts near you across the Philippines. Book courts, join tournaments, track rankings, and connect with players.">
-    <meta name="twitter:image" content="https://www.pickleplay.ph/images/PicklePlayLogo.jpg">
+    <meta name="twitter:image" content="https://www.pickleplay.ph/images/og-image.jpg">
     <meta name="twitter:image:alt" content="PicklePlay Philippines">
 
     <!-- ── JSON-LD Structured Data ──────────────────────────────────── -->
@@ -53,13 +55,40 @@
       "@context": "https://schema.org",
       "@graph": [
         {
+          "@type": "Organization",
+          "@id": "https://www.pickleplay.ph/#organization",
+          "name": "PicklePlay Philippines",
+          "url": "https://www.pickleplay.ph/",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://www.pickleplay.ph/images/PicklePlayLogo.jpg",
+            "width": 512,
+            "height": 512
+          },
+          "email": "phpickleplay@gmail.com",
+          "address": {
+            "@type": "PostalAddress",
+            "addressLocality": "Cebu City",
+            "addressCountry": "PH"
+          },
+          "sameAs": ["https://www.facebook.com/pickleplayofficial"]
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://www.pickleplay.ph/#website",
+          "name": "PicklePlay Philippines",
+          "url": "https://www.pickleplay.ph/",
+          "inLanguage": "en-PH",
+          "publisher": { "@id": "https://www.pickleplay.ph/#organization" }
+        },
+        {
           "@type": "WebApplication",
           "@id": "https://www.pickleplay.ph/#webapp",
           "name": "PicklePlay Philippines",
           "url": "https://www.pickleplay.ph/",
-          "description": "Find pickleball courts near you across the Philippines. Book courts, join tournaments, track rankings, and connect with the Philippine pickleball community.",
+          "description": "Find pickleball courts near you across the Philippines. Book courts, join tournaments, and connect with the Philippine pickleball community.",
           "applicationCategory": "SportsApplication",
-          "operatingSystem": "Web, iOS, Android",
+          "operatingSystem": "Web",
           "inLanguage": "en-PH",
           "offers": {
             "@type": "Offer",
@@ -67,79 +96,14 @@
             "priceCurrency": "PHP",
             "description": "Free to join and browse courts"
           },
-          "publisher": {
-            "@type": "Organization",
-            "name": "PicklePlay Philippines",
-            "url": "https://www.pickleplay.ph/",
-            "logo": {
-              "@type": "ImageObject",
-              "url": "https://www.pickleplay.ph/images/PicklePlayLogo.jpg"
-            }
-          }
-        },
-        {
-          "@type": "SportsActivityLocation",
-          "@id": "https://www.pickleplay.ph/#platform",
-          "name": "PicklePlay Philippines",
-          "description": "The go-to platform for finding and booking pickleball courts near you across the Philippines.",
-          "url": "https://www.pickleplay.ph/",
-          "sport": "Pickleball",
-          "areaServed": {
-            "@type": "Country",
-            "name": "Philippines"
-          },
-          "image": "https://www.pickleplay.ph/images/PicklePlayLogo.jpg"
-        },
-        {
-          "@type": "FAQPage",
-          "@id": "https://www.pickleplay.ph/#faq",
-          "mainEntity": [
-            {
-              "@type": "Question",
-              "name": "How do I find a pickleball court near me in the Philippines?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "Use PicklePlay's court locator on the homepage or head to the Booking page. You can search by city (Manila, Cebu, Davao), enable GPS to find courts near your location, and filter by court type and price."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "How do you play pickleball?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "Pickleball is played on a badminton-sized court with a low net. Players use solid paddles to hit a plastic ball over the net. Points are only scored by the serving team, games are played to 11 (win by 2), and there is a 7-foot non-volley zone (the Kitchen) near the net. Visit our Academy page to learn the full rules, grips, and tactics."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "What equipment do I need to start playing pickleball?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "To start playing pickleball you need a pickleball paddle, pickleballs (indoor or outdoor), and court shoes. Many venues in the Philippines also offer equipment rentals. Check out our Pro Shop for gear curated for PH players."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "Can I book a pickleball court online in the Philippines?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "Yes! PicklePlay lets you search, filter, and book pickleball courts across the Philippines online. Simply find a court near you, choose an available time slot, and confirm your booking in just a few clicks."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "Are there pickleball courts in Manila, Cebu, and Davao?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "Yes. PicklePlay lists pickleball courts in Metro Manila, Cebu City, Davao City, and many other cities across Luzon, Visayas, and Mindanao. Use the map on our Booking page to find courts near you."
-              }
-            }
-          ]
+          "publisher": { "@id": "https://www.pickleplay.ph/#organization" }
         }
       ]
     }
     </script>
 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
         rel="stylesheet">
     <style>
@@ -292,24 +256,7 @@
             animation: slideUpFade 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
     </style>
-    <script type="importmap">
-{
-  "imports": {
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react-router-dom": "https://esm.sh/react-router-dom@^7.13.0",
-    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
-    "recharts": "https://esm.sh/recharts@^3.7.0",
-    "lucide-react-native": "https://esm.sh/lucide-react-native@^0.563.0",
-    "react-native": "https://esm.sh/react-native@^0.83.1",
-    "@react-navigation/native": "https://esm.sh/@react-navigation/native@^7.1.28",
-    "react-native-safe-area-context": "https://esm.sh/react-native-safe-area-context@^5.6.2",
-    "@react-navigation/bottom-tabs": "https://esm.sh/@react-navigation/bottom-tabs@^7.10.1",
-    "@react-navigation/stack": "https://esm.sh/@react-navigation/stack@^7.7.1"
-  }
-}
-</script>
+    
     <link rel="stylesheet" href="/index.css">
 </head>
 

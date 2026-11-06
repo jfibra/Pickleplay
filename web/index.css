@@ -369,6 +369,43 @@
   background-color: var(--owner-blue-50) !important;
 }
 
+/* Admin shell: slate sidebar with lime accents */
+[data-role-shell="admin"] aside nav a[class*="text-white/95"] {
+  color: #CBD5E1 !important;
+}
+
+[data-role-shell="admin"] aside nav a[class*="text-white/95"]:hover {
+  color: #FFFFFF !important;
+  background-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+[data-role-shell="admin"] aside nav a[class*="bg-white/95"] {
+  background-color: rgba(255, 255, 255, 0.09) !important;
+  color: #FFFFFF !important;
+  box-shadow: none !important;
+}
+
+[data-role-shell="admin"] aside nav a[class*="bg-white/95"] > div:first-child {
+  color: #A3E635;
+}
+
+[data-role-shell="admin"] aside nav a[class*="bg-white/95"] .bg-blue-600 {
+  background-color: #A3E635 !important;
+}
+
+[data-role-shell="admin"] aside nav .bg-rose-500 {
+  background-color: #A3E635 !important;
+  color: #1A2E05 !important;
+}
+
+[data-role-shell="admin"] aside nav p[class*="text-white/85"] {
+  color: #94A3B8 !important;
+}
+
+[data-role-shell="admin"] aside .border-white\/20 {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
 :where([data-page-theme="court-owner"], [data-dashboard-role="court-owner"]) {
   color: var(--owner-text);
 }

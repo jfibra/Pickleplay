@@ -103,10 +103,12 @@ import {
   TOURNAMENT_ARCHIVE_AFTER_DAYS,
   archiveTournamentImmediately,
 } from '../../services/tournaments';
+import AdminUsersPanel from './users/AdminUsersPanel';
+import CourtOwnersPanel from './court-owners/CourtOwnersPanel';
+import PlayerAnalyticsPanel from './players/PlayerAnalyticsPanel';
 import {
   fetchPlatformOverview,
   fetchUserAnalytics,
-  fetchAdminUsersPage,
   type PlatformOverviewMetrics,
   type UserAnalytics,
 } from '../../services/adminAnalytics';
@@ -126,18 +128,6 @@ import {
 } from '../../services/maintenance';
 
 const ROLE_PIE_COLORS = ['#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#f43f5e', '#94a3b8'];
-const USER_PAGE_SIZE = 100;
-
-interface PlatformUser {
-  id: string;
-  name: string;
-  subtitle: string;
-  role: UserRole;
-  status: 'Active' | 'Suspended' | 'Pending';
-  joinedDate: string;
-  dupr: number;
-  avatarUrl?: string;
-}
 
 interface AdminDashboardProps {
   applications?: ProfessionalApplication[];
@@ -160,7 +150,9 @@ type AdminSection =
   | 'verifications'
   | 'id-training'
   | 'courts'
-  | 'court-managers';
+  | 'court-managers'
+  | 'court-owners'
+  | 'players';
 
 type AdminTab = 'hub' | AdminSection;
 
@@ -179,6 +171,8 @@ const ADMIN_SECTIONS = new Set<string>([
   'id-training',
   'courts',
   'court-managers',
+  'court-owners',
+  'players',
 ]);
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onApprove, onReject, currentAdminRole = 'ADMIN' }) => {
@@ -187,11 +181,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
   const activeTab: AdminTab =
     sectionParam && ADMIN_SECTIONS.has(sectionParam) ? (sectionParam as AdminSection) : 'hub';
 
-  const [userSearch, setUserSearch] = useState('');
-  const [userRoleFilter, setUserRoleFilter] = useState<UserRole | 'all'>('all');
-  const [userList, setUserList] = useState<PlatformUser[]>([]);
-  const [usersHasMore, setUsersHasMore] = useState(false);
-  const [usersLoadingMore, setUsersLoadingMore] = useState(false);
   const [userAnalytics, setUserAnalytics] = useState<UserAnalytics | null>(null);
   const [overviewMetrics, setOverviewMetrics] = useState<PlatformOverviewMetrics | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
@@ -268,25 +257,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
     }
   }, [sectionParam, navigate]);
 
-  useEffect(() => {
-    if (currentAdminRole === 'ADMIN' && activeTab === 'users') {
-      loadUsersPage(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userRoleFilter, activeTab]);
-
   const fetchAdminData = async () => {
     setOverviewLoading(true);
     try {
-      const [overview, usersPage, analytics] = await Promise.all([
+      const [overview, analytics] = await Promise.all([
         fetchPlatformOverview(),
-        fetchAdminUsersPage({ offset: 0, limit: USER_PAGE_SIZE, roleFilter: userRoleFilter }),
         fetchUserAnalytics(),
       ]);
 
       setOverviewMetrics(overview);
-      setUserList(usersPage.users);
-      setUsersHasMore(usersPage.hasMore);
       setUserAnalytics(analytics);
     } catch (err) {
       console.error('Failed to load admin analytics:', err);
@@ -325,27 +304,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
       .select('*')
       .order('created_at', { ascending: false });
     if (codes) setAccessCodes(codes);
-  };
-
-  const loadUsersPage = async (reset = true) => {
-    try {
-      if (reset) setUsersLoadingMore(true);
-      else setUsersLoadingMore(true);
-
-      const offset = reset ? 0 : userList.length;
-      const { users, hasMore } = await fetchAdminUsersPage({
-        offset,
-        limit: USER_PAGE_SIZE,
-        roleFilter: userRoleFilter,
-      });
-
-      setUserList((prev) => (reset ? users : [...prev, ...users]));
-      setUsersHasMore(hasMore);
-    } catch (err) {
-      console.error('Failed to load users:', err);
-    } finally {
-      setUsersLoadingMore(false);
-    }
   };
 
   const handleGenerateCode = async () => {
@@ -442,52 +400,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
       fetchAdminData();
     } catch (err) {
       console.error('Logging failed:', err);
-    }
-  };
-
-  const handleUpdateUserRole = async (userId: string, newRole: UserRole) => {
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ active_role: newRole, roles: [newRole] }) // Simple sync for now
-        .eq('id', userId);
-
-      if (error) throw error;
-
-      const targetUser = userList.find(u => u.id === userId);
-      await logAdminAction('ROLE_UPDATE', userId, targetUser?.name || 'Unknown', `${targetUser?.role} -> ${newRole}`);
-
-      setUserList(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
-      alert(`User role updated to ${newRole}`);
-    } catch (err: any) {
-      console.error('Role update failed:', err);
-      alert('Failed to update role: ' + (err.message || 'Unknown error'));
-    }
-  };
-
-  const handleUpdateUserStatus = async (userId: string, newStatus: string) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user?.id === userId) {
-        alert("You cannot suspend your own administrative access.");
-        return;
-      }
-
-      const { error } = await supabase
-        .from('profiles')
-        .update({ account_status: newStatus })
-        .eq('id', userId);
-
-      if (error) throw error;
-
-      const targetUser = userList.find(u => u.id === userId);
-      await logAdminAction('STATUS_UPDATE', userId, targetUser?.name || 'Unknown', `Status -> ${newStatus}`, 'SECURITY');
-
-      setUserList(prev => prev.map(u => u.id === userId ? { ...u, status: newStatus as any } : u));
-      alert(`User account is now ${newStatus}`);
-    } catch (err: any) {
-      console.error('Status update failed:', err);
-      alert('Failed to update status: ' + (err.message || 'Unknown error'));
     }
   };
 
@@ -763,11 +675,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
     (t) => t.isApproved !== true && t.status !== 'CANCELLED'
   ).length;
 
-  const filteredUsers = userList.filter(u =>
-    u.name.toLowerCase().includes(userSearch.toLowerCase()) ||
-    u.subtitle.toLowerCase().includes(userSearch.toLowerCase())
-  );
-
   const growthChangeLabel =
     overviewMetrics?.usersChangePct != null
       ? `${overviewMetrics.usersChangePct >= 0 ? '+' : ''}${overviewMetrics.usersChangePct}%`
@@ -889,6 +796,40 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
             { label: `${overviewMetrics?.pendingManagers ?? 0} pending invites`, tone: 'bg-amber-500' },
             { label: 'Coverage & assignments', tone: 'bg-blue-500' },
             { label: 'Open manager registry', tone: 'bg-emerald-500' },
+          ]}
+        />
+      ),
+    },
+    {
+      id: 'court-owners',
+      kind: 'people',
+      kindLabel: 'People',
+      title: 'Court Owners',
+      description: 'Every court owner, their venues, bookings, revenue, managers, and reviews.',
+      pending: overviewMetrics?.pendingVerifications ?? 0,
+      preview: (
+        <HubPreviewList
+          rows={[
+            { label: `${(overviewMetrics?.totalCourts ?? 0).toLocaleString()} courts on the platform`, tone: 'bg-blue-500' },
+            { label: `${overviewMetrics?.pendingVerifications ?? 0} verifications pending`, tone: 'bg-amber-500' },
+            { label: 'Open owner registry', tone: 'bg-emerald-500' },
+          ]}
+        />
+      ),
+    },
+    {
+      id: 'players',
+      kind: 'analytics',
+      kindLabel: 'Analytics',
+      title: 'Player Analytics',
+      description: 'Onboarding funnel, drop-offs, and what players struggle with: blocked bookings, empty searches, failed logins, and app errors.',
+      pending: 0,
+      preview: (
+        <HubPreviewList
+          rows={[
+            { label: `${(overviewMetrics?.totalUsers ?? 0).toLocaleString()} accounts`, tone: 'bg-blue-500' },
+            { label: `${(overviewMetrics?.activeUsers24h ?? 0).toLocaleString()} active in 24h`, tone: 'bg-emerald-500' },
+            { label: 'Find where players get stuck', tone: 'bg-rose-500' },
           ]}
         />
       ),
@@ -1491,34 +1432,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
         )}
 
         {activeTab === 'users' && (
-          <div className="space-y-8 animate-slide-up">
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-              <MetricCard
-                label="Total Users"
-                value={(userAnalytics?.total ?? overviewMetrics?.totalUsers ?? 0).toLocaleString()}
-                change="platform"
-                up
-              />
-              <MetricCard
-                label="Suspended"
-                value={(userAnalytics?.suspended ?? 0).toLocaleString()}
-                change="accounts"
-                up={false}
-              />
-              <MetricCard
-                label="Players"
-                value={(userAnalytics?.byRole.find((r) => r.role === 'PLAYER')?.count ?? 0).toLocaleString()}
-                change="role"
-                up
-              />
-              <MetricCard
-                label="Court Owners"
-                value={(userAnalytics?.byRole.find((r) => r.role === 'COURT_OWNER')?.count ?? 0).toLocaleString()}
-                change="role"
-                up
-              />
-            </div>
-
+          <AdminUsersPanel
+            currentAdminUserId={currentAdminUserId}
+            insights={
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
               <div className="bg-white p-8 md:p-10 rounded-[48px] border border-slate-200 shadow-sm">
                 <h2 className="text-xl font-black text-slate-900 mb-6 uppercase tracking-tight">Role Distribution</h2>
@@ -1584,139 +1500,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
                 </div>
               </div>
             </div>
-
-            <div className="bg-white rounded-[48px] border border-slate-200 shadow-sm overflow-hidden">
-              <div className="p-10 border-b border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                <h2 className="text-2xl font-black text-slate-900 tracking-tight uppercase">User Registry</h2>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="flex gap-2 flex-wrap">
-                    {(['all', 'PLAYER', 'COACH', 'COURT_OWNER', 'COURT_MANAGER', 'ADMIN'] as const).map((role) => (
-                      <button
-                        key={role}
-                        onClick={() => setUserRoleFilter(role)}
-                        className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                          userRoleFilter === role
-                            ? 'bg-slate-900 text-white'
-                            : 'bg-slate-50 text-slate-400 border border-slate-100 hover:text-slate-600'
-                        }`}
-                      >
-                        {role === 'all' ? 'All' : role.replace(/_/g, ' ')}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="relative">
-                    <Search className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                    <input
-                      type="text"
-                      placeholder="Search..."
-                      value={userSearch}
-                      onChange={(e) => setUserSearch(e.target.value)}
-                      className="bg-slate-50 border border-slate-100 rounded-3xl py-4 pl-14 pr-6 text-sm outline-none focus:ring-4 focus:ring-blue-500/10 w-full sm:w-64"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[920px] table-fixed text-left">
-                  <thead>
-                    <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                      <th className="px-8 py-6">Identity</th>
-                      <th className="w-40 px-8 py-6">Role</th>
-                      <th className="w-28 px-8 py-6">DUPR</th>
-                      <th className="w-40 px-8 py-6">Status</th>
-                      <th className="w-72 px-8 py-6 text-right">Administrative Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredUsers.map((user) => (
-                      <tr key={user.id}>
-                        <td className="px-8 py-6">
-                          <div className="flex items-center gap-4">
-                            {user.avatarUrl ? (
-                              <img
-                                src={user.avatarUrl}
-                                alt={user.name}
-                                className="w-10 h-10 rounded-xl object-cover border border-slate-100 shadow-sm"
-                              />
-                            ) : (
-                              <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-xs">
-                                {user.name.charAt(0).toUpperCase()}
-                              </div>
-                            )}
-                            <div className="min-w-0">
-                              <p className="truncate font-black text-slate-950 text-sm">{user.name}</p>
-                              <p className="truncate text-[11px] text-slate-400">{user.subtitle}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-8 py-6">
-                          <span className="inline-flex text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-lg bg-slate-100 text-slate-500">
-                            {user.role}
-                          </span>
-                        </td>
-                        <td className="px-8 py-6 text-sm font-bold text-slate-600">
-                          {user.dupr > 0 ? user.dupr.toFixed(2) : '—'}
-                        </td>
-                        <td className="px-8 py-6">
-                          <span className={`inline-flex px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${user.status === 'Active' ? 'bg-green-50 text-green-600' : 'bg-rose-50 text-rose-600'
-                            }`}>
-                            {user.status}
-                          </span>
-                        </td>
-                        <td className="px-8 py-6 text-right">
-                          <div className="flex flex-wrap justify-end gap-2">
-                            {user.role === 'PLAYER' ? (
-                              <button
-                                onClick={() => handleUpdateUserRole(user.id, 'ADMIN')}
-                                className="whitespace-nowrap px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all"
-                              >
-                                Promote
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => handleUpdateUserRole(user.id, 'PLAYER')}
-                                className="whitespace-nowrap px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all font-bold"
-                              >
-                                Demote
-                              </button>
-                            )}
-
-                            {user.status === 'Active' ? (
-                              <button
-                                onClick={() => handleUpdateUserStatus(user.id, 'Suspended')}
-                                className="whitespace-nowrap px-4 py-2 border border-rose-100 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all shadow-sm"
-                              >
-                                Suspend
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => handleUpdateUserStatus(user.id, 'Active')}
-                                className="whitespace-nowrap px-4 py-2 bg-green-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-green-700 transition-all shadow-lg"
-                              >
-                                Restore
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {usersHasMore && (
-                <div className="p-8 border-t border-slate-100 flex justify-center">
-                  <button
-                    onClick={() => loadUsersPage(false)}
-                    disabled={usersLoadingMore}
-                    className="px-8 py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all inline-flex items-center gap-2 disabled:opacity-60"
-                  >
-                    {usersLoadingMore ? <Loader2 size={14} className="animate-spin" /> : null}
-                    Load More
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
+            }
+          />
         )}
 
         {activeTab === 'courts' && (
@@ -1730,6 +1515,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ applications = [], onAp
             <AdminCourtManagersAnalytics />
           </div>
         )}
+
+        {activeTab === 'court-owners' && <CourtOwnersPanel />}
+
+        {activeTab === 'players' && <PlayerAnalyticsPanel />}
 
         {activeTab === 'security' && (
           <div className="space-y-8 animate-slide-up">

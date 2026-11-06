@@ -31,7 +31,7 @@ function isRateLimited(ip) {
 
 // Defaults used when OG mode falls back
 const SITE_URL = 'https://www.pickleplay.ph';
-const DEFAULT_IMAGE = `${SITE_URL}/images/PicklePlayLogo.jpg`;
+const DEFAULT_IMAGE = `${SITE_URL}/images/og-image.jpg`;
 const DEFAULT_TITLE = 'PicklePlay Philippines - Find Pickleball Courts Near You & Play';
 const DEFAULT_DESCRIPTION =
     'Find pickleball courts near you across the Philippines. Book courts in Manila, Cebu, Davao, join tournaments, and connect with players.';
@@ -183,7 +183,29 @@ async function probeImageMeta(imageUrl) {
     }
 }
 
-function buildMetaBlock({ title, description, image, url, imageType, publishedAt, updatedAt }) {
+// JSON-LD for crawlers that read the first HTML response (the SPA adds the same data client-side).
+function buildArticleJsonLd({ headline, description, image, url, publishedAt, updatedAt }) {
+    const data = {
+        '@context': 'https://schema.org',
+        '@type': 'NewsArticle',
+        headline: String(headline || '').slice(0, 110),
+        description,
+        image: [image],
+        mainEntityOfPage: url,
+        datePublished: publishedAt || undefined,
+        dateModified: updatedAt || publishedAt || undefined,
+        publisher: {
+            '@type': 'Organization',
+            name: 'PicklePlay Philippines',
+            logo: { '@type': 'ImageObject', url: `${SITE_URL}/images/PicklePlayLogo.jpg` },
+        },
+    };
+    // Escape "<" so article text can never close the script tag.
+    return `
+    <script type="application/ld+json">${JSON.stringify(data).replace(/</g, '\\u003c')}</script>`;
+}
+
+function buildMetaBlock({ title, description, image, url, imageType, publishedAt, updatedAt, headline, isArticle }) {
     const safeTitle = escapeHtml(title);
     const safeDescription = escapeHtml(description);
     const safeImage = escapeHtml(image);
@@ -218,7 +240,7 @@ function buildMetaBlock({ title, description, image, url, imageType, publishedAt
     <meta name="twitter:title" content="${safeTitle}">
     <meta name="twitter:description" content="${safeDescription}">
     <meta name="twitter:image" content="${safeImage}">
-    <meta name="twitter:image:alt" content="${safeTitle}">
+    <meta name="twitter:image:alt" content="${safeTitle}">${isArticle ? buildArticleJsonLd({ headline, description, image, url, publishedAt, updatedAt }) : ''}
     <!-- End dynamic Open Graph -->`;
 }
 
@@ -378,6 +400,8 @@ async function renderOgResponse(req, res, slug, article) {
             url: canonicalUrl,
             publishedAt: toIsoDate(article.published_at || article.created_at || article.date),
             updatedAt: toIsoDate(article.updated_at || article.published_at || article.created_at),
+            headline: articleTitle,
+            isArticle: true,
         };
     } else {
         meta = {

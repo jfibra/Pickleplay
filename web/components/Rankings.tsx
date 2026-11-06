@@ -1,185 +1,116 @@
 
 import React from 'react';
+import { Link } from 'react-router-dom';
 import useSEO from '../hooks/useSEO';
-import { Medal, Search, TrendingUp, UserPlus, Filter, ArrowUp, ArrowDown } from 'lucide-react';
+import { ArrowRight, Medal, Trophy, Target } from 'lucide-react';
 
-interface PlayerRank {
-  rank: number;
-  name: string;
-  dupr: number;
-  winRate: number;
-  matches: number;
-  trend: 'up' | 'down' | 'stable';
-  avatar: string;
-}
-
-const LEADERBOARD_DATA: PlayerRank[] = [
-  { rank: 1, name: 'David Smith', dupr: 5.12, winRate: 82, matches: 156, trend: 'stable', avatar: 'https://picsum.photos/seed/p3/100/100' },
-  { rank: 2, name: 'Marcus Chen', dupr: 4.85, winRate: 75, matches: 210, trend: 'up', avatar: 'https://picsum.photos/seed/p1/100/100' },
-  { rank: 3, name: 'Linda Kim', dupr: 4.62, winRate: 68, matches: 124, trend: 'down', avatar: 'https://picsum.photos/seed/p4/100/100' },
-  { rank: 4, name: 'Alex Rivera', dupr: 4.25, winRate: 68, matches: 98, trend: 'up', avatar: 'https://picsum.photos/seed/pickle/100/100' },
-  { rank: 5, name: 'Sophie Turner', dupr: 4.10, winRate: 62, matches: 84, trend: 'up', avatar: 'https://picsum.photos/seed/p6/100/100' },
-  { rank: 6, name: 'Elena Rodriguez', dupr: 3.85, winRate: 59, matches: 112, trend: 'stable', avatar: 'https://picsum.photos/seed/p2/100/100' },
-  { rank: 7, name: 'Jordan Hayes', dupr: 3.52, winRate: 51, matches: 45, trend: 'down', avatar: 'https://picsum.photos/seed/p5/100/100' },
+/**
+ * Public rankings page.
+ *
+ * There is no verified match-results feed yet, so this page explains how ratings work and points
+ * players to the skill quiz and tournaments instead of showing a leaderboard. (It previously showed
+ * hard-coded sample players.) When real rankings exist, render them here from opted-in profiles.
+ */
+const RATING_LEVELS: { range: string; label: string; description: string }[] = [
+  { range: '2.0 – 2.5', label: 'Beginner', description: 'Learning the rules, the serve and keeping rallies going.' },
+  { range: '3.0 – 3.5', label: 'Intermediate', description: 'Consistent serves and returns, starting to dink and move up to the kitchen line.' },
+  { range: '4.0 – 4.5', label: 'Advanced', description: 'Controlled third-shot drops, resets and solid doubles strategy.' },
+  { range: '5.0+', label: 'Expert / Pro', description: 'Tournament-level shot selection, speed and consistency.' },
 ];
 
 const Rankings: React.FC = () => {
   useSEO({
-    title: 'Pickleball Player Rankings Philippines – DUPR Leaderboard',
-    description: 'See the top-ranked pickleball players in the Philippines. Browse DUPR leaderboards by skill level, region, win rate, and total matches.',
+    title: 'Pickleball Player Rankings Philippines',
+    description:
+      'PicklePlay player rankings for the Philippines are coming soon. Learn how pickleball skill ratings work and find your level with our free skill rating quiz.',
     canonical: 'https://www.pickleplay.ph/rankings',
   });
-  const topThree = LEADERBOARD_DATA.slice(0, 3);
-  const remaining = LEADERBOARD_DATA.slice(3);
 
   return (
     <div className="space-y-10 animate-fade-in pb-12">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-        <div>
-          <p className="text-xs font-black text-blue-600 uppercase tracking-[0.4em] mb-4">LEADERBOARD / 2025</p>
-          <h1 className="text-5xl md:text-6xl font-black text-slate-950 tracking-tighter uppercase">Player Rankings.</h1>
-        </div>
-        <div className="flex gap-2">
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input
-              type="text"
-              placeholder="Search player..."
-              className="bg-white border border-slate-200 rounded-2xl py-3 pl-12 pr-4 outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-64 shadow-sm"
-            />
+      <div>
+        <p className="text-xs font-black text-blue-600 uppercase tracking-[0.4em] mb-4">Leaderboard</p>
+        <h1 className="text-5xl md:text-6xl font-black text-slate-950 tracking-tighter uppercase">Player Rankings.</h1>
+        <p className="mt-4 text-slate-500 text-base md:text-lg max-w-2xl leading-relaxed">
+          Official PicklePlay rankings for players in the Philippines are launching soon. They will be built from
+          verified match and tournament results, so every spot on the board is earned on court.
+        </p>
+      </div>
+
+      {/* What to do now */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Link
+          to="/guides/skill-rating"
+          className="group bg-white rounded-3xl border border-slate-200 shadow-sm p-6 md:p-8 flex flex-col gap-4 hover:shadow-xl hover:border-blue-200 transition-all"
+        >
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
+            <Target size={24} />
           </div>
-          <button className="bg-white border border-slate-200 px-4 rounded-2xl flex items-center gap-2 text-slate-600 hover:bg-slate-50 transition-all">
-            <Filter size={18} />
-            Filters
-          </button>
+          <div>
+            <h2 className="text-xl font-black text-slate-900">Find your skill rating</h2>
+            <p className="mt-1 text-slate-500">
+              Answer 10 quick questions and get an estimate on the 1.0 to 5.0+ scale used to match partners, clinics and divisions.
+            </p>
+          </div>
+          <span className="mt-auto inline-flex items-center gap-2 font-bold text-blue-600 group-hover:gap-3 transition-all">
+            Take the quiz <ArrowRight size={16} />
+          </span>
+        </Link>
+
+        <Link
+          to="/tournaments"
+          className="group bg-white rounded-3xl border border-slate-200 shadow-sm p-6 md:p-8 flex flex-col gap-4 hover:shadow-xl hover:border-lime-300 transition-all"
+        >
+          <div className="w-12 h-12 rounded-2xl bg-lime-50 text-lime-700 flex items-center justify-center">
+            <Trophy size={24} />
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-slate-900">Play ranked events</h2>
+            <p className="mt-1 text-slate-500">
+              Tournament results will count toward the first PicklePlay rankings. Browse upcoming events near you.
+            </p>
+          </div>
+          <span className="mt-auto inline-flex items-center gap-2 font-bold text-lime-700 group-hover:gap-3 transition-all">
+            Browse tournaments <ArrowRight size={16} />
+          </span>
+        </Link>
+      </div>
+
+      {/* How ratings work */}
+      <section className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-6 md:px-8 pt-6 md:pt-8 pb-4 flex items-center gap-3">
+          <Medal size={22} className="text-blue-600" />
+          <h2 className="text-lg md:text-xl font-black text-slate-900">How pickleball skill ratings work</h2>
         </div>
-      </div>
-
-      {/* Podium Section */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end pt-8">
-        {/* Silver - Rank 2 */}
-        <PodiumCard player={topThree[1]} color="slate-300" rankColor="text-slate-500" medalColor="text-slate-400" />
-
-        {/* Gold - Rank 1 */}
-        <PodiumCard player={topThree[0]} color="blue-300" rankColor="text-blue-600" medalColor="text-blue-500" isMain />
-
-        {/* Bronze - Rank 3 */}
-        <PodiumCard player={topThree[2]} color="lime-300" rankColor="text-lime-700" medalColor="text-lime-600" />
-      </div>
-
-      {/* Leaderboard Table */}
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50/50 border-b border-slate-100">
-                <th className="px-6 py-5 text-xs font-bold text-slate-500 uppercase tracking-widest">Rank</th>
-                <th className="px-6 py-5 text-xs font-bold text-slate-500 uppercase tracking-widest">Player</th>
-                <th className="px-6 py-5 text-xs font-bold text-slate-500 uppercase tracking-widest text-center">DUPR</th>
-                <th className="px-6 py-5 text-xs font-bold text-slate-500 uppercase tracking-widest">Win Rate</th>
-                <th className="px-6 py-5 text-xs font-bold text-slate-500 uppercase tracking-widest text-center">Matches</th>
-                <th className="px-6 py-5 text-xs font-bold text-slate-500 uppercase tracking-widest"></th>
+              <tr className="bg-slate-50/50 border-y border-slate-100">
+                <th scope="col" className="px-6 md:px-8 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Rating</th>
+                <th scope="col" className="px-6 md:px-8 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Level</th>
+                <th scope="col" className="px-6 md:px-8 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">What it looks like</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {remaining.map((player) => (
-                <tr key={player.rank} className="group hover:bg-blue-50/30 transition-colors">
-                  <td className="px-6 py-5">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900">#{player.rank}</span>
-                      {player.trend === 'up' && <ArrowUp size={12} className="text-green-500" />}
-                      {player.trend === 'down' && <ArrowDown size={12} className="text-red-500" />}
-                    </div>
+              {RATING_LEVELS.map((level) => (
+                <tr key={level.range}>
+                  <td className="px-6 md:px-8 py-4 whitespace-nowrap">
+                    <span className="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg font-black text-sm">{level.range}</span>
                   </td>
-                  <td className="px-6 py-5">
-                    <div className="flex items-center gap-3">
-                      <img src={player.avatar} alt={player.name} className="w-10 h-10 rounded-full border border-slate-200 shadow-sm" />
-                      <span className="font-bold text-slate-900 group-hover:text-blue-600 transition-colors">{player.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5 text-center">
-                    <span className="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg font-black text-sm">
-                      {player.dupr.toFixed(2)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-5">
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 h-1.5 w-24 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-lime-400 rounded-full"
-                          style={{ width: `${player.winRate}%` }}
-                        />
-                      </div>
-                      <span className="text-xs font-bold text-slate-600">{player.winRate}%</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-5 text-center">
-                    <span className="text-sm font-medium text-slate-500">{player.matches}</span>
-                  </td>
-                  <td className="px-6 py-5 text-right">
-                    <button className="text-blue-600 hover:text-blue-700 font-bold text-xs uppercase tracking-wider flex items-center gap-1 ml-auto">
-                      <UserPlus size={14} />
-                      Challenge
-                    </button>
-                  </td>
+                  <td className="px-6 md:px-8 py-4 font-bold text-slate-900 whitespace-nowrap">{level.label}</td>
+                  <td className="px-6 md:px-8 py-4 text-sm text-slate-600 min-w-[16rem]">{level.description}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </div>
+        <p className="px-6 md:px-8 py-5 text-xs text-slate-400 border-t border-slate-100">
+          Ratings shown here are general guidance. DUPR is an independent rating system; PicklePlay estimates are not official DUPR ratings.
+        </p>
+      </section>
     </div>
   );
 };
-
-const PodiumCard: React.FC<{
-  player: PlayerRank,
-  color: string,
-  rankColor: string,
-  medalColor: string,
-  isMain?: boolean
-}> = ({ player, color, rankColor, medalColor, isMain }) => (
-  <div className={`relative flex flex-col items-center bg-white rounded-3xl border border-slate-200 shadow-sm p-6 transition-all hover:shadow-xl hover:-translate-y-1 ${isMain ? 'pb-10 pt-12 md:scale-110 z-10 border-lime-200' : ''}`}>
-    {isMain && (
-      <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-lime-400 text-slate-900 px-6 py-2 rounded-full font-black text-sm shadow-xl shadow-lime-100 uppercase tracking-widest border-4 border-white">
-        King of Kitchen
-      </div>
-    )}
-
-    <div className={`absolute top-4 right-4 ${medalColor}`}>
-      <Medal size={isMain ? 32 : 24} strokeWidth={2.5} />
-    </div>
-
-    <div className="relative mb-4">
-      <img
-        src={player.avatar}
-        alt={player.name}
-        className={`rounded-full border-4 object-cover ${isMain ? 'w-24 h-24 border-lime-400' : 'w-20 h-20 border-slate-100'}`}
-      />
-      <div className={`absolute -bottom-2 -right-2 w-8 h-8 rounded-full border-2 border-white flex items-center justify-center font-black text-white text-xs ${isMain ? 'bg-blue-500' : 'bg-slate-400'}`}>
-        {player.rank}
-      </div>
-    </div>
-
-    <h3 className={`font-black text-center ${isMain ? 'text-xl' : 'text-lg'} text-slate-900`}>{player.name}</h3>
-
-    <div className="mt-4 flex flex-col items-center gap-1">
-      <span className={`text-xs font-bold uppercase tracking-widest ${rankColor}`}>DUPR Rating</span>
-      <span className="text-3xl font-black text-slate-900">{player.dupr.toFixed(2)}</span>
-    </div>
-
-    <div className="mt-6 grid grid-cols-2 gap-4 w-full pt-4 border-t border-slate-50">
-      <div className="text-center">
-        <p className="text-[10px] text-slate-400 uppercase font-bold">Win Rate</p>
-        <p className="font-bold text-slate-700">{player.winRate}%</p>
-      </div>
-      <div className="text-center">
-        <p className="text-[10px] text-slate-400 uppercase font-bold">Matches</p>
-        <p className="font-bold text-slate-700">{player.matches}</p>
-      </div>
-    </div>
-  </div>
-);
 
 export default Rankings;

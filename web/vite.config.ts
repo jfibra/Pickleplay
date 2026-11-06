@@ -30,5 +30,16 @@ export default defineConfig(({ mode }) => {
       esbuild: {
         drop: mode === 'production' ? ['console', 'debugger'] : [],
       },
+      build: {
+        rollupOptions: {
+          output: {
+            // Libraries that rarely change get their own long-cached chunks.
+            manualChunks: {
+              'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+              'vendor-supabase': ['@supabase/supabase-js'],
+            },
+          },
+        },
+      },
     };
 });

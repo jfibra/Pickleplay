@@ -1,16 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import useSEO from '../hooks/useSEO';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '../services/supabase';
 import { canAttemptSignup } from '../services/rateLimiter';
 import { getAuthCallbackUrl } from '../services/authRedirects';
+import { normalizeAuthError, trackEvent } from '../services/playerEvents';
 import {
-    Eye,
-    EyeOff,
-    AlertCircle,
     Loader2,
     CheckCircle2,
-    ArrowLeft,
     X,
     Shield,
     LogIn,
@@ -18,6 +15,19 @@ import {
     Mail,
     UserCheck
 } from 'lucide-react';
+import {
+    AuthLayout,
+    AuthPanelHeader,
+    AuthStatusIcon,
+    AuthAlert,
+    AuthDivider,
+    AuthField,
+    AuthPasswordField,
+    GoogleButton,
+    authLinkClass,
+    authPrimaryButtonClass,
+    authSecondaryButtonClass,
+} from './auth/AuthLayout';
 
 // ─── Default T&C ──────────────────────────────────────────────────────────────
 const DEFAULT_TERMS = `
@@ -115,15 +125,6 @@ const TermsModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen
     );
 };
 
-const GoogleIcon = () => (
-    <svg className="w-5 h-5" viewBox="0 0 24 24">
-        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.07 5.07 0 01-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
-        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
-        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A11.96 11.96 0 001 12c0 1.78.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05" />
-        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.66l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
-    </svg>
-);
-
 // ─── Main Signup ──────────────────────────────────────────────────────────────
 const Signup: React.FC = () => {
     useSEO({
@@ -136,14 +137,13 @@ const Signup: React.FC = () => {
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [fullName, setFullName] = useState('');
-    const [showPassword, setShowPassword] = useState(false);
-    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
     const [agreedToTerms, setAgreedToTerms] = useState(false);
     const [highlightTerms, setHighlightTerms] = useState(false);
     const [showTermsModal, setShowTermsModal] = useState(false);
+    const termsRef = useRef<HTMLLabelElement>(null);
     const [alreadyRegistered, setAlreadyRegistered] = useState(false);
     const [resetEmailSent, setResetEmailSent] = useState(false);
     const [sendingReset, setSendingReset] = useState(false);
@@ -230,6 +230,7 @@ const Signup: React.FC = () => {
             const { error: authError } = await supabase.auth.signInWithOAuth({ provider, options: oauthOptions });
             if (authError) throw authError;
         } catch (err: any) {
+            trackEvent('signup_failed', { reason: normalizeAuthError(err?.message), method: provider });
             setError(err.message || `Failed to sign in with ${provider}.`);
             setLoading(false);
         }
@@ -291,6 +292,7 @@ const Signup: React.FC = () => {
             }
         } catch (err: any) {
             const msg = err.message || 'Failed to create account. Please try again.';
+            trackEvent('signup_failed', { reason: normalizeAuthError(msg), method: 'password' });
             if (msg.toLowerCase().includes('already registered') || msg.toLowerCase().includes('already been registered')) {
                 if (isGuestFlow) {
                     // Guest account already exists — update their password via server admin API
@@ -372,681 +374,312 @@ const Signup: React.FC = () => {
         } finally { setSendingReset(false); }
     };
 
+    // Google sign-up sits above the terms checkbox, so point the user at it when it is still unticked.
+    const flashTerms = () => {
+        setHighlightTerms(true);
+        termsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => setHighlightTerms(false), 2000);
+    };
+
+    const passwordsMismatch = Boolean(confirmPassword) && confirmPassword !== password;
+
+    const termsCheckbox = (
+        <label
+            ref={termsRef}
+            className={`flex cursor-pointer items-start gap-3 py-1 text-sm leading-relaxed transition-colors ${highlightTerms ? 'text-rose-200' : 'text-slate-200'}`}
+        >
+            <input
+                type="checkbox"
+                checked={agreedToTerms}
+                onChange={(e) => setAgreedToTerms(e.target.checked)}
+                className={`mt-0.5 h-4.5 w-4.5 shrink-0 accent-[#C6E35A] ${highlightTerms ? 'outline-2 outline-offset-2 outline-rose-400' : ''}`}
+            />
+            <span>
+                I agree to the{' '}
+                <button
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); setShowTermsModal(true); }}
+                    className={`underline underline-offset-2 ${authLinkClass}`}
+                >
+                    Terms & Privacy Policy
+                </button>
+            </span>
+        </label>
+    );
+
+    const submitLabel = (label: string) => loading ? (
+        <>
+            <Loader2 size={20} className="animate-spin" aria-hidden="true" />
+            <span className="sr-only">Creating your account</span>
+        </>
+    ) : label;
+
     /* ── Success ── */
     if (success) {
-        const successTitle = isGuestFlow ? 'Account Successfully Set Up!' : requiresEmailConfirmation ? 'Check Your Email' : 'Account Created!';
+        const successTitle = isGuestFlow ? 'Your account is ready' : requiresEmailConfirmation ? 'Check your email' : 'Account created';
         const successDescription = isGuestFlow
-            ? 'Your account is ready. Redirecting you to login...'
+            ? 'Taking you to log in…'
             : requiresEmailConfirmation
-                ? 'We sent a verification link to your inbox. Open the email and confirm your address to activate your PicklePlay account.'
-                : "You're all set. Redirecting you to login...";
+                ? 'We sent a verification link to your inbox. Open it to confirm your address and activate your PicklePlay account.'
+                : "You're all set. Taking you to log in…";
 
         return (
-            <div className="min-h-screen w-full bg-[#030712] flex flex-col items-center justify-center px-4 py-8 relative overflow-hidden">
-                <style>{`
-                    @keyframes float {
-                        0%, 100% { transform: translateY(0) rotate(var(--rot)); }
-                        50% { transform: translateY(-30px) rotate(var(--rot)); }
-                    }
-                    @keyframes fadeInBlur {
-                        from { opacity: 0; filter: blur(10px); transform: scale(0.98) translateY(20px); }
-                        to { opacity: 1; filter: blur(0); transform: scale(1) translateY(0); }
-                    }
-                    .animate-float { animation: float var(--dur) ease-in-out infinite; }
-                    .animate-fade-in-blur { animation: fadeInBlur 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-                `}</style>
+            <AuthLayout
+                headline={<>One step<br /><span className="text-[#C6E35A]">from the court.</span></>}
+                subline="Verify your email to unlock bookings, tournaments and the full PicklePlay experience."
+            >
+                <div className="flex flex-col gap-5">
+                    <AuthStatusIcon>{requiresEmailConfirmation ? <Mail size={30} /> : <CheckCircle2 size={32} />}</AuthStatusIcon>
+                    <AuthPanelHeader title={successTitle}>{successDescription}</AuthPanelHeader>
 
-                <div className="absolute top-[12%] left-[8%] w-[34rem] h-[34rem] rounded-full bg-blue-600/14 blur-[130px] pointer-events-none" />
-                <div className="absolute bottom-[8%] right-[10%] w-[30rem] h-[30rem] rounded-full bg-emerald-500/10 blur-[120px] pointer-events-none animate-pulse" />
-                <div className="absolute top-[38%] right-[28%] w-[22rem] h-[22rem] rounded-full bg-indigo-500/10 blur-[130px] pointer-events-none" />
+                    {requiresEmailConfirmation && (
+                        <div className="rounded-xl border border-[#22406A] bg-[#081A33] px-4 py-3">
+                            <p className="text-[13px] text-slate-400">Sent to</p>
+                            <p className="mt-1 truncate font-semibold text-white">{email}</p>
+                            <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                                Check your inbox first, then spam or promotions if it doesn't arrive within a minute.
+                            </p>
+                        </div>
+                    )}
 
-                <img src="/images/Ball.png" alt="" style={{ '--dur': '15s', '--rot': '18deg' } as any} className="absolute -top-12 right-[4%] w-56 h-56 opacity-[0.05] animate-float pointer-events-none select-none blur-[1px]" />
-                <img src="/images/Ball.png" alt="" style={{ '--dur': '18s', '--rot': '-22deg' } as any} className="absolute bottom-[4%] left-[4%] w-64 h-64 opacity-[0.05] animate-float pointer-events-none select-none blur-[2px]" />
+                    {requiresEmailConfirmation && verificationActionMessage && (
+                        <AuthAlert tone={verificationActionMessage.type}>{verificationActionMessage.text}</AuthAlert>
+                    )}
 
-                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')] opacity-[0.03] pointer-events-none" />
-                <div className="absolute inset-0 bg-[radial-gradient(#ffffff05_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none" />
-
-                <div className="relative z-10 w-full max-w-[56.25rem] mb-4">
-                    <Link
-                        to="/"
-                        className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white/40 hover:text-white/80 transition-colors"
-                    >
-                        <ArrowLeft size={14} />
-                        Back to Home
-                    </Link>
-                </div>
-
-                <div className="relative z-10 w-full max-w-[56.25rem] bg-white rounded-[32px] shadow-2xl shadow-black/50 border border-white/5 overflow-hidden animate-fade-in-blur">
-                    <div className="flex flex-col lg:flex-row min-h-[35rem]">
-                        <div className="hidden lg:flex lg:w-[45%] relative overflow-hidden rounded-l-3xl">
-                            <img
-                                src="/images/home-images/pb7.jpg"
-                                alt="Pickleball action"
-                                className="absolute inset-0 w-full h-full object-cover"
-                            />
-                            <div className="absolute inset-0 bg-gradient-to-br from-slate-900/75 via-slate-900/55 to-slate-900/75" />
-
-                            <div className="relative z-10 flex flex-col justify-between p-9 w-full">
-                                <div className="flex items-center gap-3">
-                                    <div className="relative">
-                                        <div className="absolute -inset-1.5 bg-white/20 rounded-xl blur-md" />
-                                        <img src="/images/PicklePlayLogo.jpg" alt="PicklePlay" className="relative w-11 h-11 rounded-xl object-contain shadow-lg ring-2 ring-white/20" />
-                                    </div>
-                                    <div>
-                                        <span className="text-white font-black text-base tracking-tight">PicklePlay</span>
-                                        <p className="text-white/40 text-[0.5625rem] font-bold uppercase tracking-widest">Philippines</p>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-5">
-                                    <h2 className="text-3xl xl:text-4xl font-black text-white leading-[1.15] tracking-tight">
-                                        You're one step<br />
-                                        <span className="text-lime-400">from the court.</span>
-                                    </h2>
-                                    <div className="flex gap-3">
-                                        <div className="w-1 rounded-full bg-blue-500 shrink-0" />
-                                        <p className="text-white/50 text-sm leading-relaxed">
-                                            Verify your email to unlock bookings,
-                                            tournaments, and the full PicklePlay experience.
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <p className="text-white/20 text-[0.625rem] font-bold uppercase tracking-widest">© 2026 PicklePlay PH</p>
+                    {requiresEmailConfirmation ? (
+                        <div className="flex flex-col gap-3">
+                            <Link to={`/login?email=${encodeURIComponent(email)}`} className={authPrimaryButtonClass}>
+                                Back to log in
+                            </Link>
+                            <div className="flex flex-wrap gap-3">
+                                <button
+                                    type="button"
+                                    onClick={handleResendVerificationEmail}
+                                    disabled={isResendingVerification}
+                                    className={`${authSecondaryButtonClass} flex-[1_1_10rem]`}
+                                >
+                                    {isResendingVerification ? 'Sending…' : 'Resend email'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleUseDifferentEmail}
+                                    className={`${authSecondaryButtonClass} flex-[1_1_10rem]`}
+                                >
+                                    Use a different email
+                                </button>
                             </div>
                         </div>
-
-                        <div className="flex-1 flex flex-col justify-center px-7 py-9 sm:px-10 lg:px-12 lg:border-l border-slate-200">
-                            <div className="lg:hidden flex justify-center mb-5">
-                                <img src="/images/PicklePlayLogo.jpg" alt="PicklePlay" className="w-12 h-12 rounded-xl object-contain shadow-md" />
-                            </div>
-
-                            <div className="mx-auto w-full max-w-md text-center">
-                                <div className="flex flex-col items-center mb-8">
-                                    <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-lime-400 shadow-[0_0_35px_rgba(163,230,53,0.38)]">
-                                        <CheckCircle2 size={44} className="text-slate-950" />
-                                    </div>
-                                    <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-4 py-2 text-[0.625rem] font-black uppercase tracking-[0.28em] text-blue-700 shadow-sm">
-                                        <Mail size={13} />
-                                        Email Verification
-                                    </div>
-                                </div>
-
-                                <h1 className="text-3xl font-black text-slate-950 tracking-tight uppercase">
-                                    {successTitle}
-                                </h1>
-
-                                <p className="mt-4 text-base leading-8 text-slate-500">
-                                    {successDescription}
-                                </p>
-
-                                {requiresEmailConfirmation && (
-                                    <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-left text-sm text-slate-700 shadow-sm">
-                                        <p className="text-[0.625rem] font-black uppercase tracking-[0.24em] text-slate-400">
-                                            Verification Email Sent To
-                                        </p>
-                                        <p className="mt-2 truncate text-base font-bold text-slate-900">
-                                            {email}
-                                        </p>
-                                        <p className="mt-2 leading-6 text-slate-500">
-                                            Check your inbox first, then spam or promotions if it does not appear within a minute.
-                                        </p>
-                                    </div>
-                                )}
-
-                                {requiresEmailConfirmation && verificationActionMessage && (
-                                    <div className={`mt-4 rounded-xl border px-4 py-3 text-sm font-medium ${
-                                        verificationActionMessage.type === 'success'
-                                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                            : 'border-rose-200 bg-rose-50 text-rose-700'
-                                    }`}>
-                                        {verificationActionMessage.text}
-                                    </div>
-                                )}
-
-                                <div className="mt-7">
-                                    {requiresEmailConfirmation ? (
-                                        <div className="space-y-4">
-                                            <Link
-                                                to={`/login?email=${encodeURIComponent(email)}`}
-                                                className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-3.5 text-xs font-black uppercase tracking-widest text-white transition-all shadow-xl shadow-blue-900/20 hover:from-blue-700 hover:to-blue-800"
-                                            >
-                                                Back To Login
-                                            </Link>
-
-                                            <div className="flex flex-wrap items-center justify-center gap-3">
-                                                <button
-                                                    type="button"
-                                                    onClick={handleResendVerificationEmail}
-                                                    disabled={isResendingVerification}
-                                                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-3 text-[0.6875rem] font-black uppercase tracking-[0.18em] text-slate-700 transition-colors hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                                                >
-                                                    {isResendingVerification ? 'Sending...' : 'Resend Email'}
-                                                </button>
-
-                                                <button
-                                                    type="button"
-                                                    onClick={handleUseDifferentEmail}
-                                                    className="inline-flex items-center justify-center rounded-xl border border-transparent px-4 py-3 text-[0.6875rem] font-black uppercase tracking-[0.18em] text-slate-500 transition-colors hover:text-slate-800"
-                                                >
-                                                    Use A Different Email
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-col items-center gap-3">
-                                            <Loader2 className="animate-spin text-lime-400" size={28} />
-                                            <p className="text-[0.625rem] font-bold uppercase tracking-widest text-slate-400">
-                                                Redirecting securely
-                                            </p>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
+                    ) : (
+                        <div role="status" className="flex items-center gap-3 text-sm text-slate-300">
+                            <Loader2 size={22} className="animate-spin text-[#C6E35A]" aria-hidden="true" />
+                            Redirecting…
                         </div>
-                    </div>
+                    )}
                 </div>
-            </div>
+            </AuthLayout>
         );
     }
 
     /* ── Already Registered (guest already has an account) ── */
     if (alreadyRegistered) {
         return (
-            <div className="min-h-screen w-full bg-[#030712] flex flex-col items-center justify-center px-4 py-8 relative overflow-hidden">
-                {/* Background Gradients */}
-                <div className="absolute top-[15%] right-[10%] w-[35rem] h-[35rem] rounded-full bg-amber-500/10 blur-[130px] pointer-events-none" />
-                <div className="absolute bottom-[10%] left-[5%] w-[45rem] h-[45rem] rounded-full bg-blue-600/15 blur-[110px] pointer-events-none animate-pulse" />
+            <AuthLayout
+                headline={<>Already<br /><span className="text-[#C6E35A]">on the team.</span></>}
+                back={{ label: 'Back', onClick: () => { setAlreadyRegistered(false); setResetEmailSent(false); setError(null); } }}
+            >
+                <div className="flex flex-col gap-5">
+                    <AuthStatusIcon><UserCheck size={30} /></AuthStatusIcon>
+                    <AuthPanelHeader title="Account found">
+                        An account with <strong className="font-semibold text-white">{email}</strong> already exists on PicklePlay.
+                        Log in or reset your password below. Your guest booking will appear in My Bookings.
+                    </AuthPanelHeader>
 
-                <div className="relative z-10 w-full max-w-md">
-                    {/* Back */}
-                    <div className="mb-4">
-                        <button
-                            onClick={() => { setAlreadyRegistered(false); setResetEmailSent(false); setError(null); }}
-                            className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white/40 hover:text-white/80 transition-colors"
-                        >
-                            <ArrowLeft size={14} />
-                            Back
-                        </button>
-                    </div>
-
-                    <div className="bg-white rounded-[32px] shadow-2xl shadow-black/50 border border-white/5 p-8 sm:p-10 text-center space-y-6">
-                        {/* Icon */}
-                        <div className="inline-flex items-center justify-center w-20 h-20 bg-blue-50 rounded-full border-2 border-blue-200 mx-auto">
-                            <UserCheck size={36} className="text-blue-600" />
-                        </div>
-
-                        <div className="space-y-2">
-                            <h1 className="text-2xl font-black text-slate-950 tracking-tight">Account Found!</h1>
-                            <p className="text-slate-500 text-sm leading-relaxed">
-                                An account with <strong className="text-blue-600">{email}</strong> already exists on PicklePlay.
-                            </p>
-                            <p className="text-slate-500 text-sm leading-relaxed">
-                                Log in or reset your password below. Your guest booking will automatically appear in <strong className="text-slate-800">My Bookings</strong>.
-                            </p>
-                        </div>
-
-                        {resetEmailSent ? (
-                            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
-                                <div className="flex items-center justify-center gap-2 text-emerald-600">
-                                    <CheckCircle2 size={18} />
-                                    <span className="font-bold text-sm">Password Reset Email Sent!</span>
-                                </div>
-                                <p className="text-emerald-600/70 text-xs leading-relaxed">
-                                    Check your inbox for <strong>{email}</strong>. Click the link to set your password, then log in to see your booking.
-                                </p>
-                                <Link
-                                    to="/login"
-                                    className="inline-flex items-center gap-2 mt-2 text-blue-600 font-bold text-sm hover:text-blue-700 transition-colors"
-                                >
-                                    <LogIn size={14} />
-                                    Go to Login
-                                </Link>
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                {error && (
-                                    <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-center gap-3 text-rose-600 text-sm">
-                                        <AlertCircle size={16} className="shrink-0" />
-                                        <p className="font-medium">{error}</p>
-                                    </div>
-                                )}
-
-                                {/* Option 1: Login */}
-                                <Link
-                                    to={`/login${redirectUrl !== '/dashboard' ? `?redirect=${encodeURIComponent(redirectUrl)}` : ''}`}
-                                    className="w-full bg-[#1E40AF] hover:bg-blue-800 text-white font-black h-14 rounded-xl uppercase tracking-widest text-xs flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] shadow-xl shadow-blue-900/20"
-                                >
-                                    <LogIn size={16} />
-                                    Log In to Your Account
-                                </Link>
-
-                                {/* Divider */}
-                                <div className="relative">
-                                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div>
-                                    <div className="relative flex justify-center text-[0.625rem] font-bold uppercase tracking-widest">
-                                        <span className="bg-white px-4 text-slate-400">or</span>
-                                    </div>
-                                </div>
-
-                                {/* Option 2: Reset Password */}
-                                <button
-                                    onClick={handleSendResetEmail}
-                                    disabled={sendingReset}
-                                    className="w-full bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 font-bold h-12 rounded-xl text-xs uppercase tracking-widest flex items-center justify-center gap-2.5 transition-all active:scale-[0.98] border border-slate-200"
-                                >
-                                    {sendingReset ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />}
-                                    {sendingReset ? 'Sending...' : "Reset Password via Email"}
-                                </button>
-                            </div>
-                        )}
-                    </div>
+                    {resetEmailSent ? (
+                        <>
+                            <AuthAlert tone="success">
+                                Password reset email sent to {email}. Open the link to set your password, then log in to see your booking.
+                            </AuthAlert>
+                            <Link to="/login" className={authPrimaryButtonClass}>
+                                <LogIn size={18} aria-hidden="true" />
+                                Go to log in
+                            </Link>
+                        </>
+                    ) : (
+                        <>
+                            {error && <AuthAlert>{error}</AuthAlert>}
+                            <Link
+                                to={`/login${redirectUrl !== '/dashboard' ? `?redirect=${encodeURIComponent(redirectUrl)}` : ''}`}
+                                className={authPrimaryButtonClass}
+                            >
+                                <LogIn size={18} aria-hidden="true" />
+                                Log in to your account
+                            </Link>
+                            <AuthDivider label="or" />
+                            <button type="button" onClick={handleSendResetEmail} disabled={sendingReset} className={authSecondaryButtonClass}>
+                                {sendingReset ? <Loader2 size={18} className="animate-spin" aria-hidden="true" /> : <KeyRound size={18} aria-hidden="true" />}
+                                {sendingReset ? 'Sending…' : 'Reset password by email'}
+                            </button>
+                        </>
+                    )}
                 </div>
-            </div>
+            </AuthLayout>
         );
     }
 
     /* ── Guest Setup Flow — streamlined password-only form ── */
     if (isGuestFlow && email) {
         return (
-            <div className="min-h-screen w-full bg-[#030712] flex flex-col items-center justify-center px-4 py-8 relative overflow-hidden">
-                <style>{`
-                    @keyframes fadeInBlur {
-                        from { opacity: 0; filter: blur(10px); transform: scale(0.98) translateY(20px); }
-                        to { opacity: 1; filter: blur(0); transform: scale(1) translateY(0); }
-                    }
-                    .animate-fade-in-blur {
-                        animation: fadeInBlur 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-                    }
-                `}</style>
-
-                {/* Background */}
-                <div className="absolute top-[15%] right-[10%] w-[35rem] h-[35rem] rounded-full bg-emerald-500/10 blur-[130px] pointer-events-none" />
-                <div className="absolute bottom-[10%] left-[5%] w-[45rem] h-[45rem] rounded-full bg-blue-600/15 blur-[110px] pointer-events-none animate-pulse" />
-                <div className="absolute inset-0 bg-[radial-gradient(#ffffff05_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none" />
-
-                {/* Back to Home */}
-                <div className="relative z-10 w-full max-w-md mb-4">
-                    <Link to="/" className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white/40 hover:text-white/80 transition-colors">
-                        <ArrowLeft size={14} />
-                        Back to Home
-                    </Link>
-                </div>
-
-                <div className="relative z-10 w-full max-w-md bg-white rounded-[32px] shadow-2xl shadow-black/50 border border-white/5 overflow-hidden animate-fade-in-blur">
-                    <div className="p-8 sm:p-10">
-                        {/* Logo */}
-                        <div className="flex justify-center mb-6">
-                            <div className="relative">
-                                <div className="absolute -inset-2 bg-blue-100/50 rounded-2xl blur-lg" />
-                                <img src="/images/PicklePlayLogo.jpg" alt="PicklePlay" className="relative w-14 h-14 rounded-xl object-contain shadow-lg ring-2 ring-slate-100" />
-                            </div>
-                        </div>
-
-                        {/* Welcome */}
-                        <div className="text-center mb-8">
-                            <h1 className="text-2xl font-black text-slate-950 tracking-tight mb-2">Setup Your Account</h1>
+            <>
+                <AuthLayout
+                    headline={<>Your booking<br /><span className="text-[#C6E35A]">is waiting.</span></>}
+                    subline="Set a password to see your bookings and use everything PicklePlay has to offer."
+                >
+                    <div className="flex flex-col gap-5">
+                        <AuthPanelHeader title="Set up your account">
                             {guestLoading ? (
-                                <div className="flex items-center justify-center gap-2 text-slate-400">
-                                    <Loader2 size={14} className="animate-spin" />
-                                    <span className="text-sm">Loading your info...</span>
-                                </div>
+                                <span className="inline-flex items-center gap-2">
+                                    <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                                    Loading your info…
+                                </span>
+                            ) : guestName ? (
+                                <>Welcome, <strong className="font-semibold text-white">{guestName}</strong>! Set a password to view your bookings.</>
                             ) : (
-                                <p className="text-slate-500 text-sm leading-relaxed">
-                                    {guestName ? (
-                                        <>Welcome, <strong className="text-slate-800">{guestName}</strong>! Set</>  
-                                    ) : (
-                                        <>Set</>  
-                                    )}
-                                    {' '}your password to access your PicklePlay account and view your bookings.
-                                </p>
+                                'Set a password to view your bookings.'
                             )}
-                        </div>
+                        </AuthPanelHeader>
 
-                        {/* Account info card */}
-                        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6 flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
-                                <Mail size={18} className="text-blue-600" />
+                        <div className="flex items-center gap-3 rounded-xl border border-[#22406A] bg-[#081A33] p-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#C6E35A]/15 text-[#C6E35A]">
+                                <Mail size={18} aria-hidden="true" />
                             </div>
                             <div className="min-w-0">
-                                {guestName && <p className="text-sm font-bold text-slate-900 truncate">{guestName}</p>}
-                                <p className="text-xs text-slate-500 font-medium truncate">{email}</p>
+                                {guestName && <p className="truncate text-sm font-semibold text-white">{guestName}</p>}
+                                <p className="truncate text-[13px] text-slate-300">{email}</p>
                             </div>
-                            <div className="ml-auto">
-                                <span className="text-[0.6rem] font-extrabold uppercase tracking-widest bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-full">Guest</span>
-                            </div>
+                            <span className="ml-auto rounded-full bg-[#C6E35A]/15 px-2.5 py-1 text-xs font-semibold text-[#C6E35A]">Guest</span>
                         </div>
 
-                        <form onSubmit={handleSignup} className="space-y-4">
-                            {error && (
-                                <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-center gap-3 text-rose-600 text-sm">
-                                    <AlertCircle size={16} className="shrink-0" />
-                                    <p className="font-medium">{error}</p>
-                                </div>
-                            )}
-
-                            {/* Password */}
-                            <div className="space-y-1.5">
-                                <label className="text-[0.625rem] font-extrabold uppercase tracking-widest text-slate-700 ml-1">Password</label>
-                                <div className="relative">
-                                    <input
-                                        type={showPassword ? 'text' : 'password'}
-                                        required
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        className="w-full bg-slate-50/50 border border-slate-200 focus:border-[#1E40AF] focus:ring-2 focus:ring-blue-100 rounded-xl py-3.5 px-4 text-slate-900 text-sm font-semibold placeholder:text-slate-400 outline-none transition-all"
-                                        placeholder="Enter your password"
-                                    />
-                                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
-                                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Confirm Password */}
-                            <div className="space-y-1.5">
-                                <label className="text-[0.625rem] font-extrabold uppercase tracking-widest text-slate-700 ml-1">Confirm Password</label>
-                                <div className="relative">
-                                    <input
-                                        type={showConfirmPassword ? 'text' : 'password'}
-                                        required
-                                        value={confirmPassword}
-                                        onChange={(e) => setConfirmPassword(e.target.value)}
-                                        className={`w-full bg-slate-50/50 border rounded-xl py-3.5 px-4 text-slate-900 text-sm font-semibold placeholder:text-slate-400 outline-none transition-all focus:ring-2 ${confirmPassword && confirmPassword !== password
-                                            ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-500/10'
-                                            : 'border-slate-200 focus:border-[#1E40AF] focus:ring-blue-100'
-                                            }`}
-                                        placeholder="Confirm your password"
-                                    />
-                                    <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
-                                        {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                                    </button>
-                                </div>
-                                {password.length > 0 && password.length < 8 && (
-                                    <p className="text-[0.625rem] text-amber-500 font-semibold ml-1">Password must be at least 8 characters</p>
-                                )}
-                            </div>
-
-                            {/* Terms */}
-                            <div className="flex items-start gap-2.5 pt-1">
-                                <label className="flex items-start gap-2.5 cursor-pointer select-none">
-                                    <input type="checkbox" checked={agreedToTerms} onChange={(e) => setAgreedToTerms(e.target.checked)} className="w-4 h-4 mt-0.5 rounded border-slate-400 text-blue-600 focus:ring-blue-600/20" />
-                                    <span className="text-xs text-slate-700 font-medium leading-relaxed">
-                                        I agree to the{' '}
-                                        <button type="button" onClick={(e) => { e.preventDefault(); setShowTermsModal(true); }} className="text-blue-600 font-bold hover:text-blue-700 underline underline-offset-2 transition-colors">
-                                            Terms & Privacy Policy
-                                        </button>
-                                    </span>
-                                </label>
-                            </div>
-
-                            {/* CTA */}
-                            <button
-                                type="submit"
-                                disabled={loading || !agreedToTerms}
-                                className={`w-full font-black h-14 rounded-xl uppercase tracking-widest text-xs flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-xl ${agreedToTerms
-                                    ? 'bg-[#1E40AF] hover:bg-blue-800 text-white shadow-blue-900/20'
-                                    : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-                                    }`}
-                            >
-                                {loading ? <Loader2 size={20} className="animate-spin" /> : 'Setup Your Account'}
+                        <form onSubmit={handleSignup} className="flex flex-col gap-5">
+                            {error && <AuthAlert>{error}</AuthAlert>}
+                            <AuthPasswordField
+                                id="guest-password"
+                                label="Password"
+                                required
+                                autoComplete="new-password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="Create a password"
+                                hint="At least 8 characters."
+                            />
+                            <AuthPasswordField
+                                id="guest-confirm-password"
+                                label="Confirm password"
+                                required
+                                autoComplete="new-password"
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                placeholder="Type it again"
+                                invalid={passwordsMismatch}
+                                hint={passwordsMismatch ? "Passwords don't match." : undefined}
+                            />
+                            {termsCheckbox}
+                            <button type="submit" disabled={loading || !agreedToTerms} className={authPrimaryButtonClass}>
+                                {submitLabel('Set up account')}
                             </button>
                         </form>
 
-                        {/* Already have password? */}
-                        <p className="mt-5 text-center text-slate-600 text-sm font-medium">
+                        <p className="text-center text-[15px] text-slate-300">
                             Already have a password?{' '}
-                            <Link to="/login" className="text-[#1E40AF] font-bold hover:text-blue-700 transition-all">
-                                Sign In
-                            </Link>
+                            <Link to="/login" className={authLinkClass}>Log in</Link>
                         </p>
                     </div>
-                </div>
-
-                {/* Terms Modal */}
+                </AuthLayout>
                 <TermsModal isOpen={showTermsModal} onClose={() => setShowTermsModal(false)} />
-            </div>
+            </>
         );
     }
 
     /* ── Normal Signup ── */
     return (
-        <div className="min-h-screen w-full bg-[#030712] flex flex-col items-center justify-center px-4 py-8 relative overflow-hidden">
-            <style>{`
-                @keyframes float {
-                    0%, 100% { transform: translateY(0) rotate(var(--rot)); }
-                    50% { transform: translateY(-30px) rotate(var(--rot)); }
-                }
-                @keyframes fadeInBlur {
-                    from { opacity: 0; filter: blur(10px); transform: scale(0.98) translateY(20px); }
-                    to { opacity: 1; filter: blur(0); transform: scale(1) translateY(0); }
-                }
-                .animate-float {
-                    animation: float var(--dur) ease-in-out infinite;
-                }
-                .animate-fade-in-blur {
-                    animation: fadeInBlur 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-                }
-            `}</style>
+        <>
+            <AuthLayout
+                wide
+                headline={<>Your game.<br />Your courts.<br /><span className="text-[#C6E35A]">Your rating.</span></>}
+                subline="Join players across the Philippines booking courts, entering tournaments and tracking their DUPR on PicklePlay."
+            >
+                <div className="flex flex-col gap-5">
+                    <AuthPanelHeader title="Create your account">
+                        Already a member?{' '}
+                        <Link to="/login" className={authLinkClass}>Log in</Link>
+                    </AuthPanelHeader>
 
-            {/* ── Background Gradients ── */}
-            <div className="absolute top-[15%] right-[10%] w-[35rem] h-[35rem] rounded-full bg-emerald-500/10 blur-[130px] pointer-events-none" />
-            <div className="absolute bottom-[10%] left-[5%] w-[45rem] h-[45rem] rounded-full bg-blue-600/15 blur-[110px] pointer-events-none animate-pulse" />
-            <div className="absolute top-[50%] left-[20%] w-[30rem] h-[30rem] rounded-full bg-indigo-500/10 blur-[140px] pointer-events-none" />
+                    <GoogleButton
+                        label="Sign up with Google"
+                        disabled={loading}
+                        onClick={() => {
+                            if (!agreedToTerms) {
+                                flashTerms();
+                                return;
+                            }
+                            handleSocialLogin('google');
+                        }}
+                    />
+                    <AuthDivider label="or with email" />
 
-            {/* ── Background Pickleballs (Matching Reference Image) ── */}
-            <img src="/images/Ball.png" alt="" style={{ '--dur': '14s', '--rot': '-15deg' } as any} className="absolute -top-12 right-[10%] w-64 h-64 opacity-[0.1] animate-float pointer-events-none select-none blur-[1px] drop-shadow-[0_0_30px_rgba(163,230,53,0.15)]" />
-            <img src="/images/Ball.png" alt="" style={{ '--dur': '16s', '--rot': '10deg' } as any} className="absolute top-[10%] -left-16 w-52 h-52 opacity-[0.08] animate-float pointer-events-none select-none drop-shadow-[0_0_20px_rgba(163,230,53,0.12)]" />
-            <img src="/images/Ball.png" alt="" style={{ '--dur': '19s', '--rot': '-35deg' } as any} className="absolute bottom-[15%] -right-20 w-80 h-80 opacity-[0.12] animate-float pointer-events-none select-none blur-[2px] drop-shadow-[0_0_40px_rgba(163,230,53,0.2)]" />
-            <img src="/images/Ball.png" alt="" style={{ '--dur': '13s', '--rot': '25deg' } as any} className="absolute bottom-[5%] left-[5%] w-64 h-64 opacity-[0.07] animate-float pointer-events-none select-none" />
-
-            {/* ── Subtle Pattern overlay ── */}
-            <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')] opacity-[0.03] pointer-events-none" />
-            <div className="absolute inset-0 bg-[radial-gradient(#ffffff05_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none" />
-
-            {/* Back to Home — above card */}
-            <div className="relative z-10 w-full max-w-[56.25rem] mb-4">
-                <Link
-                    to="/"
-                    className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-white/40 hover:text-white/80 transition-colors"
-                >
-                    <ArrowLeft size={14} />
-                    Back to Home
-                </Link>
-            </div>
-
-            {/* ═══════ CENTERED CARD ═══════ */}
-            <div className="relative z-10 w-full max-w-[56.25rem] bg-white rounded-[32px] shadow-2xl shadow-black/50 border border-white/5 overflow-hidden animate-fade-in-blur">
-                <div className="flex flex-col lg:flex-row min-h-[35rem]">
-
-                    {/* ── LEFT COLUMN — Pickleball photo + branding ── */}
-                    <div className="hidden lg:flex lg:w-[45%] relative overflow-hidden rounded-l-3xl">
-                        <img
-                            src="/images/home-images/pb7.jpg"
-                            alt="Pickleball action"
-                            className="absolute inset-0 w-full h-full object-cover"
+                    <form onSubmit={handleSignup} className="flex flex-col gap-5">
+                        {error && <AuthAlert>{error}</AuthAlert>}
+                        <AuthField
+                            id="signup-name"
+                            label="Full name"
+                            type="text"
+                            required
+                            autoComplete="name"
+                            value={fullName}
+                            onChange={(e) => setFullName(e.target.value)}
+                            placeholder="Juan Dela Cruz"
                         />
-                        <div className="absolute inset-0 bg-gradient-to-br from-slate-900/75 via-slate-900/55 to-slate-900/75" />
-
-                        <div className="relative z-10 flex flex-col justify-between p-9 w-full">
-                            {/* Logo */}
-                            <div className="flex items-center gap-3">
-                                <div className="relative">
-                                    <div className="absolute -inset-1.5 bg-white/20 rounded-xl blur-md" />
-                                    <img src="/images/PicklePlayLogo.jpg" alt="PicklePlay" className="relative w-11 h-11 rounded-xl object-contain shadow-lg ring-2 ring-white/20" />
-                                </div>
-                                <div>
-                                    <span className="text-white font-black text-base tracking-tight">PicklePlay</span>
-                                    <p className="text-white/40 text-[0.5625rem] font-bold uppercase tracking-widest">Philippines</p>
-                                </div>
-                            </div>
-
-                            {/* Headline */}
-                            <div className="space-y-5">
-                                <h2 className="text-3xl xl:text-4xl font-black text-white leading-[1.15] tracking-tight">
-                                    Launch your game<br />
-                                    <span className="text-lime-400">to the next level.</span>
-                                </h2>
-                                <div className="flex gap-3">
-                                    <div className="w-1 rounded-full bg-blue-500 shrink-0" />
-                                    <p className="text-white/50 text-sm leading-relaxed">
-                                        Build your player profile and get<br />matched with top courts & events.
-                                    </p>
-                                </div>
-                            </div>
-
-                            <p className="text-white/20 text-[0.625rem] font-bold uppercase tracking-widest">© 2026 PicklePlay PH</p>
+                        <AuthField
+                            id="signup-email"
+                            label="Email"
+                            type="email"
+                            required
+                            autoComplete="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="name@example.com"
+                        />
+                        <div className="grid gap-5 sm:grid-cols-2">
+                            <AuthPasswordField
+                                id="signup-password"
+                                label="Password"
+                                required
+                                autoComplete="new-password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="Create one"
+                                hint="At least 8 characters."
+                            />
+                            <AuthPasswordField
+                                id="signup-confirm-password"
+                                label="Confirm password"
+                                required
+                                autoComplete="new-password"
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                placeholder="Type it again"
+                                invalid={passwordsMismatch}
+                                hint={passwordsMismatch ? "Passwords don't match." : undefined}
+                            />
                         </div>
-                    </div>
-
-                    {/* ── RIGHT COLUMN — Form ── */}
-                    <div className="flex-1 flex flex-col justify-center px-7 py-9 sm:px-10 lg:px-12 lg:border-l border-slate-200">
-                        {/* Mobile logo */}
-                        <div className="lg:hidden flex justify-center mb-5">
-                            <img src="/images/PicklePlayLogo.jpg" alt="PicklePlay" className="w-12 h-12 rounded-xl object-contain shadow-md" />
-                        </div>
-
-                        {/* Title */}
-                        <h1 className="text-2xl font-black text-slate-950 tracking-tight text-center lg:text-center mb-6 animate-fade-in-up">Create Account</h1>
-
-                        <form onSubmit={handleSignup} className="space-y-4">
-                            {error && (
-                                <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-center gap-3 text-rose-600 text-sm animate-fade-in">
-                                    <AlertCircle size={16} className="shrink-0" />
-                                    <p className="font-medium">{error}</p>
-                                </div>
-                            )}
-
-                            {/* Full Name */}
-                            <div className="space-y-1.5 animate-fade-in-up animate-stagger-1">
-                                <label className="text-[0.625rem] font-extrabold uppercase tracking-widest text-slate-700 ml-1">Full Name</label>
-                                <input
-                                    type="text"
-                                    required
-                                    value={fullName}
-                                    onChange={(e) => setFullName(e.target.value)}
-                                    className="w-full bg-slate-50/50 border border-slate-200 focus:border-[#1E40AF] focus:ring-2 focus:ring-blue-100 rounded-xl py-3.5 px-4 text-slate-900 text-sm font-semibold placeholder:text-slate-400 outline-none transition-all"
-                                    placeholder="Juan Dela Cruz"
-                                />
-                            </div>
-
-                            {/* Email */}
-                            <div className="space-y-1.5 animate-fade-in-up animate-stagger-2">
-                                <label className="text-[0.625rem] font-extrabold uppercase tracking-widest text-slate-700 ml-1">Email Address</label>
-                                <input
-                                    type="email"
-                                    required
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    className="w-full bg-slate-50/50 border border-slate-200 focus:border-[#1E40AF] focus:ring-2 focus:ring-blue-100 rounded-xl py-3.5 px-4 text-slate-900 text-sm font-semibold placeholder:text-slate-400 outline-none transition-all"
-                                    placeholder="name@example.com"
-                                />
-                            </div>
-
-                            {/* Password + Confirm */}
-                            <div className="grid grid-cols-2 gap-3 animate-fade-in-up animate-stagger-3">
-                                <div className="space-y-1.5">
-                                    <label className="text-[0.625rem] font-extrabold uppercase tracking-widest text-slate-700 ml-1">Password</label>
-                                    <div className="relative">
-                                        <input
-                                            type={showPassword ? 'text' : 'password'}
-                                            required
-                                            value={password}
-                                            onChange={(e) => setPassword(e.target.value)}
-                                            className="w-full bg-slate-50/50 border border-slate-200 focus:border-[#1E40AF] focus:ring-2 focus:ring-blue-100 rounded-xl py-3.5 px-4 text-slate-900 text-sm font-semibold placeholder:text-slate-400 outline-none transition-all"
-                                            placeholder="••••••••"
-                                        />
-                                        <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
-                                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-[0.625rem] font-extrabold uppercase tracking-widest text-slate-700 ml-1">Confirm</label>
-                                    <div className="relative">
-                                        <input
-                                            type={showConfirmPassword ? 'text' : 'password'}
-                                            required
-                                            value={confirmPassword}
-                                            onChange={(e) => setConfirmPassword(e.target.value)}
-                                            className={`w-full bg-slate-50/50 border rounded-xl py-3.5 px-4 text-slate-900 text-sm font-semibold placeholder:text-slate-400 outline-none transition-all focus:ring-2 ${confirmPassword && confirmPassword !== password
-                                                ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-500/10'
-                                                : 'border-slate-200 focus:border-[#1E40AF] focus:ring-blue-100'
-                                                }`}
-                                            placeholder="••••••••"
-                                        />
-                                        <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
-                                            {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Terms */}
-                            <div className="flex items-start gap-2.5 pt-1 animate-fade-in-up animate-stagger-4">
-                                <label className="flex items-start gap-2.5 cursor-pointer select-none">
-                                    <input type="checkbox" checked={agreedToTerms} onChange={(e) => setAgreedToTerms(e.target.checked)} className={`w-4 h-4 mt-0.5 rounded focus:ring-blue-600/20 transition-all ${highlightTerms ? 'border-rose-500 text-rose-600 scale-110 shadow-sm shadow-rose-500/50' : 'border-slate-400 text-blue-600'}`} />
-                                    <span className={`text-xs font-medium leading-relaxed transition-all ${highlightTerms ? 'text-rose-600 font-bold' : 'text-slate-700'}`}>
-                                        I agree to the{' '}
-                                        <button type="button" onClick={(e) => { e.preventDefault(); setShowTermsModal(true); }} className={`${highlightTerms ? 'text-rose-700' : 'text-blue-600 hover:text-blue-700'} font-bold underline underline-offset-2 transition-colors`}>
-                                            Terms & Privacy Policy
-                                        </button>
-                                    </span>
-                                </label>
-                            </div>
-
-                            {/* CTA */}
-                            <button
-                                type="submit"
-                                disabled={loading || !agreedToTerms}
-                                className={`w-full font-black h-14 rounded-xl uppercase tracking-widest text-xs flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-xl animate-fade-in-up animate-stagger-5 ${agreedToTerms
-                                    ? 'bg-[#1E40AF] hover:bg-blue-800 text-white shadow-blue-900/20'
-                                    : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-                                    }`}
-                            >
-                                {loading ? <Loader2 size={20} className="animate-spin" /> : 'Create Account'}
-                            </button>
-                        </form>
-
-                        {/* Divider */}
-                        <div className="relative my-5 animate-fade-in delay-500">
-                            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-300" /></div>
-                            <div className="relative flex justify-center text-[0.625rem] font-bold uppercase tracking-widest">
-                                <span className="bg-white px-4 text-slate-500">sign up with</span>
-                            </div>
-                        </div>
-
-                        {/* Google */}
-                        <button
-                            type="button"
-                            onClick={(e) => {
-                                if (!agreedToTerms) {
-                                    e.preventDefault();
-                                    setHighlightTerms(true);
-                                    setTimeout(() => setHighlightTerms(false), 2000);
-                                    return;
-                                }
-                                handleSocialLogin('google');
-                            }}
-                            className="w-full flex items-center justify-center gap-3 border rounded-xl py-3 transition-all active:scale-[0.97] group animate-fade-in delay-700 bg-white hover:bg-slate-50 border-slate-200 hover:border-slate-300 shadow-sm"
-                        >
-                            <GoogleIcon />
+                        {termsCheckbox}
+                        <button type="submit" disabled={loading || !agreedToTerms} className={authPrimaryButtonClass}>
+                            {submitLabel('Create account')}
                         </button>
-
-                        {/* Bottom link */}
-                        <p className="mt-5 text-center text-slate-600 text-sm font-medium">
-                            Already have an account?{' '}
-                            <Link to="/login" className="text-[#1E40AF] font-bold hover:text-blue-700 transition-all">
-                                Sign In
-                            </Link>
-                        </p>
-                    </div>
+                    </form>
                 </div>
-            </div>
-
-            {/* Terms Modal */}
+            </AuthLayout>
             <TermsModal isOpen={showTermsModal} onClose={() => setShowTermsModal(false)} />
-        </div>
+        </>
     );
 };
 

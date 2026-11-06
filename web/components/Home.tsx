@@ -31,6 +31,7 @@ import {
 import { Product, Tournament } from '../types';
 import { supabase } from '../services/supabase';
 import { fetchTournaments as fetchTournamentsService } from '../services/tournaments';
+import { getTournamentDisplayStatus } from '../lib/tournamentDisplay';
 import { reverseGeocode, getComponent } from '../services/geocoding';
 
 const HERO_IMAGES = [
@@ -70,18 +71,28 @@ const POPULAR_PLACES = [
   "Bacolod", "Dumaguete", "Pasig", "Angeles City"
 ];
 
+const HOME_COURT_SEARCH_ID = 'home-court-search';
+
+/** Scrolls the hero court search into view and focuses it (the app scrolls inside <main>, not window). */
+const focusHomeCourtSearch = () => {
+  const input = document.getElementById(HOME_COURT_SEARCH_ID) as HTMLInputElement | null;
+  if (!input) return;
+  input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  window.setTimeout(() => input.focus({ preventScroll: true }), 450);
+};
+
 const FAQ_ITEMS: { question: string; answer: React.ReactNode }[] = [
   {
-    question: "What is Pickleplay?",
-    answer: "Pickleplay is the premier digital platform for the Philippine pickleball community, connecting players, coaches, and court owners. We provide a seamless ecosystem for booking courts, finding coaches, joining tournaments, and staying updated with the latest news."
+    question: "What is PicklePlay?",
+    answer: "PicklePlay is the premier digital platform for the Philippine pickleball community, connecting players, coaches, and court owners. We provide a seamless ecosystem for booking courts, finding coaches, joining tournaments, and staying updated with the latest news."
   },
   {
     question: "I'm a new pickleball player. How do I get started?",
-    answer: <>Getting started is easy! We recommend checking out our 'How to Play' guides in the Academy section and finding a local coach or clinic through our platform. You can also use our <Link to="/booking" className="text-blue-600 font-bold hover:underline">Court Locator</Link> to find 'dink spots' near you where beginners are always welcome.</>
+    answer: <>Getting started is easy! Start with our <Link to="/guides" className="text-blue-600 font-bold hover:underline">beginner guides</Link> and the <Link to="/academy" className="text-blue-600 font-bold hover:underline">Academy</Link> basics, then use our <Link to="/booking" className="text-blue-600 font-bold hover:underline">Court Locator</Link> to find 'dink spots' near you where beginners are always welcome. Once you create a free account, you can also connect with local coaches.</>
   },
   {
     question: "How do I book a court?",
-    answer: <>Simply use our '<a href="#" onClick={(e: React.MouseEvent) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-blue-600 font-bold hover:underline cursor-pointer">LOCATE</a>' search on the homepage or head to the '<Link to="/booking" className="text-blue-600 font-bold hover:underline">BOOKING</Link>' page. You can filter by region (Luzon, Visayas, Mindanao) or city, view available time slots, and book your court in just a few clicks.</>
+    answer: <>Simply use our '<button type="button" onClick={focusHomeCourtSearch} className="text-blue-600 font-bold hover:underline cursor-pointer">LOCATE</button>' search on the homepage or head to the '<Link to="/booking" className="text-blue-600 font-bold hover:underline">BOOKING</Link>' page. Search by court name or city, or browse the map, then pick an available time slot and book your court in just a few clicks.</>
   },
   {
     question: "Can I host my own tournaments?",
@@ -89,7 +100,7 @@ const FAQ_ITEMS: { question: string; answer: React.ReactNode }[] = [
   },
   {
     question: "What equipment do I need?",
-    answer: <>To start playing, you'll need a pickleball paddle, some pickleballs (indoor or outdoor depending on the court), and standard court shoes. Many venues also offer equipment rentals. Check out our '<Link to="/shop" className="text-blue-600 font-bold hover:underline">PRO SHOP</Link>' for high-quality gear curated for PH players.</>
+    answer: <>To start playing, you'll need a pickleball paddle, some pickleballs (indoor or outdoor depending on the court), and standard court shoes. Many venues also offer equipment rentals.</>
   }
 ];
 
@@ -200,12 +211,13 @@ const Home: React.FC = () => {
     const fetchTournaments = async () => {
       setIsTournamentsLoading(true);
       try {
-        const data = await fetchTournamentsService({ featuredOnly: true, approvedOnly: true });
-        setTournaments(data.length > 0 ? data.slice(0, 4) : []);
+        const isCurrent = (t: any) => ['UPCOMING', 'LIVE'].includes(getTournamentDisplayStatus(t));
+        const data = (await fetchTournamentsService({ featuredOnly: true, approvedOnly: true })).filter(isCurrent);
+        setTournaments(data.slice(0, 4));
 
-        // If no featured tournaments, fallback to latest approved
+        // If no current featured tournaments, fall back to the latest current approved ones
         if (data.length === 0) {
-          const fallback = await fetchTournamentsService({ approvedOnly: true });
+          const fallback = (await fetchTournamentsService({ approvedOnly: true })).filter(isCurrent);
           setTournaments(fallback.slice(0, 3));
         }
       } catch (err) {
@@ -750,7 +762,7 @@ const Home: React.FC = () => {
     if (locations.length > 0) {
       // Only show Active locations in featured section
       const activeLocations = locations
-        .filter(loc => (loc as any).status === 'Active' || (loc as any).is_active === true)
+        .filter(loc => ((loc as any).status ? (loc as any).status === 'Active' : (loc as any).is_active === true))
         .filter(isFeatureReady);
       const featureReadyLocations = locations.filter(isFeatureReady);
       const locationsPool = activeLocations.length > 0 ? activeLocations : featureReadyLocations;
@@ -873,7 +885,7 @@ const Home: React.FC = () => {
   return (
     <div className="bg-white selection:bg-lime-400 selection:text-black min-h-screen">
       {/* Cinematic Hero */}
-      <section className="relative min-h-screen md:min-h-[95vh] flex flex-col items-center justify-center pt-16 md:pt-24 pb-28 md:pb-40 bg-slate-950 z-40">
+      <section className="relative min-h-[100svh] flex flex-col items-center justify-center pt-24 md:pt-32 pb-28 md:pb-36 bg-slate-950 z-40">
         {/* Overlapping player faces and user count - Desktop: Corner positioning, Mobile: Hidden (moved below title) */}
         <div className="hidden md:flex absolute left-6 md:left-12 lg:left-24 bottom-8 md:bottom-14 z-40 items-center gap-3 select-none">
           <div className="flex -space-x-4">
@@ -899,7 +911,7 @@ const Home: React.FC = () => {
           >
             {HERO_IMAGES.map((img, idx) => (
               <div key={idx} className="min-w-full h-full flex-shrink-0 relative">
-                <img src={img} className="w-full h-full object-cover grayscale-[20%] brightness-[0.7] contrast-125" alt={`Slide ${idx}`} />
+                <img src={img} className="w-full h-full object-cover grayscale-[20%] brightness-[0.7] contrast-125" alt="" aria-hidden="true" />
               </div>
             ))}
           </div>
@@ -912,12 +924,12 @@ const Home: React.FC = () => {
         </div>
 
         <div className="relative z-50 w-full max-w-[1800px] mx-auto px-6 md:px-24 flex flex-col items-center text-center">
-          <div className="inline-flex items-center gap-2 bg-white/5 border border-white/10 backdrop-blur-sm text-lime-400 px-10 md:px-14 py-2 rounded-full font-bold text-[10px] md:text-xs uppercase tracking-[0.2em] mb-4 md:mb-8 animate-fade-in-up">
-            The National Network for Philippines
+          <div className="inline-flex items-center gap-2 bg-slate-950/40 border border-white/15 backdrop-blur-md text-lime-400 px-6 md:px-10 py-2 rounded-full font-bold text-[10px] md:text-xs uppercase tracking-[0.2em] mb-5 md:mb-8 animate-fade-in-up">
+            The National Network for the Philippines
           </div>
-          <h1 className="font-black text-white leading-[0.9] md:leading-[0.8] tracking-tighter mb-4 md:mb-8 uppercase animate-fade-in-up delay-100">
-            <span className="text-5xl sm:text-6xl md:text-7xl lg:text-[10rem]">PICKLEPLAY</span> <br />
-            <span className="text-lime-400 text-4xl sm:text-7xl md:text-8xl lg:text-[9rem]">PHILIPPINES</span>
+          <h1 className="font-black text-white leading-[0.9] tracking-tighter mb-5 md:mb-8 uppercase animate-fade-in-up delay-100">
+            <span className="block text-[length:clamp(3rem,min(12vw,16vh),10rem)]">PICKLEPLAY</span>
+            <span className="block text-lime-400 text-[length:clamp(2.25rem,min(10.5vw,14.5vh),9rem)]">PHILIPPINES</span>
           </h1>
 
           {/* Mobile-only Player Badge */}
@@ -946,7 +958,9 @@ const Home: React.FC = () => {
               <div className="relative flex items-center bg-white border border-slate-200 rounded-full p-1.5 md:p-2.5 h-14 md:h-16 shadow-3xl">
                 <Search className="ml-3 md:ml-6 text-slate-400" size={18} />
                 <input
+                  id={HOME_COURT_SEARCH_ID}
                   type="text"
+                  aria-label="Find courts by name or city"
                   placeholder="Find courts..."
                   value={searchQuery}
                   onChange={handleInputChange}
@@ -1149,6 +1163,8 @@ const Home: React.FC = () => {
                 onScroll={handleCarouselScroll}
               >
                 {featuredList.map((item, idx) => {
+                  // Locations whose status isn't Active (e.g. "Coming Soon") can't be booked yet.
+                  const notOpenYet = typeof (item as any).status === 'string' && (item as any).status !== 'Active';
                   return (
                     <div
                       key={idx}
@@ -1201,9 +1217,9 @@ const Home: React.FC = () => {
 
                           {/* Location/Venue Name */}
                           <Link to={`/booking?locationId=${item.id}&lat=${item.latitude}&lng=${item.longitude}&zoom=14&loc=${encodeURIComponent(item.city)}`}>
-                            <h5 className="text-lg font-black text-slate-900 tracking-tight leading-snug hover:text-blue-600 transition-colors mb-1 line-clamp-1">
+                            <h3 className="text-lg font-black text-slate-900 tracking-tight leading-snug hover:text-blue-600 transition-colors mb-1 line-clamp-1">
                               {item.name}
-                            </h5>
+                            </h3>
                           </Link>
 
                           {/* Address */}
@@ -1244,7 +1260,7 @@ const Home: React.FC = () => {
                               <span className="text-[11px] font-bold text-slate-600 truncate">
                                 {Array.isArray(item.amenities) && item.amenities.length > 0
                                   ? item.amenities.join(', ')
-                                  : 'No Amenities'
+                                  : 'Amenities not listed'
                                 }
                               </span>
                             </div>
@@ -1253,9 +1269,9 @@ const Home: React.FC = () => {
                           {/* Book Button */}
                           <Link
                             to={`/booking?locationId=${item.id}&lat=${item.latitude}&lng=${item.longitude}&zoom=14&loc=${encodeURIComponent(item.city)}`}
-                            className="flex items-center justify-center w-full text-white bg-blue-600 hover:bg-blue-700 font-bold rounded-xl text-sm px-4 py-2.5 transition-all active:scale-95 mt-auto"
+                            className={`flex items-center justify-center w-full font-bold rounded-xl text-sm px-4 py-2.5 transition-all active:scale-95 mt-auto ${notOpenYet ? 'text-slate-700 bg-slate-100 hover:bg-slate-200' : 'text-white bg-blue-600 hover:bg-blue-700'}`}
                           >
-                            Book Now
+                            {notOpenYet ? 'Opening soon · View court' : 'Book Now'}
                           </Link>
                         </div>
                       </>
@@ -1504,7 +1520,7 @@ const Home: React.FC = () => {
         <div className="max-w-[1800px] mx-auto px-4 md:px-24 lg:px-32">
           <div className="mb-8 md:mb-16 animate-fade-in-up">
             <div className="max-w-2xl">
-              <p className="text-[9px] md:text-[10px] font-black text-blue-600 uppercase tracking-[0.3em] md:tracking-[0.4em] mb-2 md:mb-4">COMPETITIVE CIRCUIT / 2026</p>
+              <p className="text-[9px] md:text-[10px] font-black text-blue-600 uppercase tracking-[0.3em] md:tracking-[0.4em] mb-2 md:mb-4">COMPETITIVE CIRCUIT / {new Date().getFullYear()}</p>
               <h2 className="text-3xl md:text-6xl lg:text-7xl font-black text-slate-950 tracking-tighter leading-[0.9] uppercase">
                 Elite PH <br />
                 <span className="text-lime-500 italic">Tournaments.</span>
@@ -1539,7 +1555,7 @@ const Home: React.FC = () => {
                     {/* Status Badge */}
                     <div className="absolute top-4 left-4">
                       <span className="bg-blue-600 text-white px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest shadow-lg">
-                        {tournament.status}
+                        {getTournamentDisplayStatus(tournament)}
                       </span>
                     </div>
 
@@ -1602,7 +1618,7 @@ const Home: React.FC = () => {
                   {/* Status Badge */}
                   <div className="absolute top-4 md:top-8 left-4 md:left-8">
                     <span className="bg-blue-600 text-white px-3 md:px-4 py-1 md:py-1.5 rounded-full text-[8px] md:text-[10px] font-black uppercase tracking-widest shadow-lg">
-                      {tournament.status}
+                      {getTournamentDisplayStatus(tournament)}
                     </span>
                   </div>
 
@@ -1651,8 +1667,12 @@ const Home: React.FC = () => {
         />
         {/* Desktop-only: Phone mockup image on the right – flush to bottom, in front of gradient */}
         <img
-          src="/images/DOWNLOAD APP.png"
+          src="/images/download-app.webp"
           alt="PicklePlay App Preview"
+          width={1200}
+          height={1200}
+          loading="lazy"
+          decoding="async"
           className="hidden lg:block absolute z-[2] pointer-events-none object-contain object-bottom"
           style={{
             width: '44%',
@@ -1712,13 +1732,15 @@ const Home: React.FC = () => {
                 Frequently Asked Questions
               </h2>
               <p className="text-slate-600 text-sm font-medium max-w-2xl mx-auto leading-relaxed">
-                Pickleplay makes it easy to play more pickleball, whether you're finding your first game or running your own events. Here are answers to the questions we hear most from players and organizers.
+                PicklePlay makes it easy to play more pickleball, whether you're finding your first game or running your own events. Here are answers to the questions we hear most from players and organizers.
               </p>
             </div>
             <div className="space-y-3">
               {FAQ_ITEMS.map((item, idx) => (
                 <div key={idx} className="bg-white border-2 border-slate-100 rounded-2xl overflow-hidden shadow-sm transition-all duration-300">
                   <button
+                    type="button"
+                    aria-expanded={activeFaqIndex === idx}
                     onClick={() => setActiveFaqIndex(activeFaqIndex === idx ? null : idx)}
                     className="w-full text-left px-4 py-4 flex items-center justify-between gap-3 group"
                   >
@@ -1779,8 +1801,12 @@ const Home: React.FC = () => {
             />
             {/* FAQ Image – fills the entire 1139×1139 group */}
             <img
-              src="/images/FAQ.png"
-              alt="Pickleball Players"
+              src="/images/faq-players.webp"
+              alt="Pickleball players"
+              width={900}
+              height={900}
+              loading="lazy"
+              decoding="async"
               className="absolute inset-0 w-full h-full"
               style={{
                 objectFit: 'contain',
@@ -1833,7 +1859,7 @@ const Home: React.FC = () => {
                 lineHeight: '1.2',
               }}
             >
-              Pickleplay makes it easy to play more pickleball, whether you're finding your first game or running your own events. Here are answers to the questions we hear most from players and organizers.
+              PicklePlay makes it easy to play more pickleball, whether you're finding your first game or running your own events. Here are answers to the questions we hear most from players and organizers.
             </p>
 
             {/* Accordion — starts at top: (5219-4665)/1163 ≈ 47.6% */}
@@ -1856,6 +1882,8 @@ const Home: React.FC = () => {
                     style={{ background: '#D9D9D9', backdropFilter: 'blur(2px)' }}
                   >
                     <button
+                      type="button"
+                      aria-expanded={activeFaqIndex === idx}
                       onClick={() => setActiveFaqIndex(activeFaqIndex === idx ? null : idx)}
                       className="w-full text-left px-6 flex items-center justify-between gap-4 group"
                       style={{ height: '70px' }}
@@ -1896,7 +1924,7 @@ const Home: React.FC = () => {
                 The premier destination for the Philippine pickleball community. Join the movement, find your squad, and dominate the court.
               </p>
               <div className="flex gap-3 md:gap-4 pt-1 md:pt-2">
-                <a href="https://www.facebook.com/pickleplayofficial" target="_blank" rel="noopener noreferrer" className="w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl bg-white/10 flex items-center justify-center text-white/70 hover:bg-white hover:text-[#0A57A7] transition-all">
+                <a href="https://www.facebook.com/pickleplayofficial" target="_blank" rel="noopener noreferrer" aria-label="PicklePlay on Facebook" className="w-8 h-8 md:w-10 md:h-10 rounded-lg md:rounded-xl bg-white/10 flex items-center justify-center text-white/70 hover:bg-white hover:text-[#0A57A7] transition-all">
                   <Facebook size={16} className="md:w-[18px] md:h-[18px]" />
                 </a>
               </div>
@@ -1904,26 +1932,35 @@ const Home: React.FC = () => {
 
             {/* Quick Links */}
             <div>
-              <h4 className="text-[10px] md:text-[11px] font-black text-white uppercase tracking-widest mb-4 md:mb-6">Platform</h4>
+              <h2 className="text-[10px] md:text-[11px] font-black text-white uppercase tracking-widest mb-4 md:mb-6">Platform</h2>
               <ul className="space-y-2 md:space-y-3">
-                <li><Link to="/booking" className="text-xs md:text-sm font-bold text-blue-100/70 hover:text-lime-400 transition-colors">Booking System</Link></li>
-                <li><Link to="/community" className="text-xs md:text-sm font-bold text-blue-100/70 hover:text-lime-400 transition-colors">Community Hub</Link></li>
-                <li><Link to="/shop" className="text-xs md:text-sm font-bold text-blue-100/70 hover:text-lime-400 transition-colors">Pro Shop</Link></li>
+                {[
+                  ['/booking', 'Find & Book Courts'],
+                  ['/tournaments', 'Tournaments'],
+                  ['/news', 'News'],
+                  ['/guides', 'Guides & Skill Quiz'],
+                  ['/academy', 'Academy'],
+                  ['/rankings', 'Rankings'],
+                  ['/faq', 'FAQ'],
+                  ['/community', 'Community Hub'],
+                ].map(([to, label]) => (
+                  <li key={to}><Link to={to} className="text-xs md:text-sm font-bold text-blue-100/70 hover:text-lime-400 transition-colors">{label}</Link></li>
+                ))}
               </ul>
             </div>
 
             {/* Legal Section */}
             <div>
-              <h4 className="text-[10px] md:text-[11px] font-black text-white uppercase tracking-widest mb-4 md:mb-6">Legal & Policy</h4>
+              <h2 className="text-[10px] md:text-[11px] font-black text-white uppercase tracking-widest mb-4 md:mb-6">Legal & Policy</h2>
               <ul className="space-y-2 md:space-y-3">
-                <li><a href="/policy" className="text-xs md:text-sm font-bold text-blue-100/70 hover:text-lime-400 transition-colors">Privacy Policy</a></li>
-                <li><a href="/terms" className="text-xs md:text-sm font-bold text-blue-100/70 hover:text-lime-400 transition-colors">Terms of Service</a></li>
+                <li><Link to="/policy" className="text-xs md:text-sm font-bold text-blue-100/70 hover:text-lime-400 transition-colors">Privacy Policy</Link></li>
+                <li><Link to="/terms" className="text-xs md:text-sm font-bold text-blue-100/70 hover:text-lime-400 transition-colors">Terms of Service</Link></li>
               </ul>
             </div>
 
             {/* Contact Section */}
             <div>
-              <h4 className="text-[10px] md:text-[11px] font-black text-white uppercase tracking-widest mb-4 md:mb-6">Contact Us</h4>
+              <h2 className="text-[10px] md:text-[11px] font-black text-white uppercase tracking-widest mb-4 md:mb-6">Contact Us</h2>
               <ul className="space-y-2 md:space-y-3">
                 <li className="flex items-start gap-2 md:gap-3">
                   <MapPin size={14} className="md:w-[18px] md:h-[18px] text-lime-400 shrink-0 mt-0.5" />
@@ -1931,7 +1968,7 @@ const Home: React.FC = () => {
                 </li>
                 <li className="flex items-center gap-2 md:gap-3">
                   <Mail size={14} className="md:w-[18px] md:h-[18px] text-lime-400 shrink-0" />
-                  <span className="text-xs md:text-sm font-bold text-blue-100/70">phpickleplay@gmail.com</span>
+                  <a href="mailto:phpickleplay@gmail.com" className="text-xs md:text-sm font-bold text-blue-100/70 hover:text-lime-400 transition-colors">phpickleplay@gmail.com</a>
                 </li>
               </ul>
             </div>
@@ -1939,7 +1976,7 @@ const Home: React.FC = () => {
 
           <div className="pt-4 md:pt-6 border-t border-white/10 flex flex-col md:flex-row justify-between items-center gap-3 md:gap-4">
             <p className="text-[9px] md:text-[10px] text-blue-200/50 font-black uppercase tracking-[0.2em] md:tracking-[0.3em]">
-              © 2026 PICKLEBALL PHILIPPINES LTD. ALL RIGHTS RESERVED.
+              © {new Date().getFullYear()} PICKLEPLAY PHILIPPINES. ALL RIGHTS RESERVED.
             </p>
           </div>
         </div>
@@ -1975,7 +2012,7 @@ const Home: React.FC = () => {
               {/* Status Badge on Image */}
               <div className="absolute top-4 left-4 md:top-6 md:left-6">
                 <span className="bg-blue-600 text-white px-3 md:px-4 py-1.5 md:py-2 rounded-full text-[10px] md:text-xs font-black uppercase tracking-widest shadow-lg">
-                  {selectedTournament.status}
+                  {getTournamentDisplayStatus(selectedTournament)}
                 </span>
               </div>
             </div>

@@ -4,8 +4,12 @@ const SITE_NAME = 'PicklePlay Philippines';
 const DEFAULT_TITLE = `${SITE_NAME} - Book Courts & Play Pickleball`;
 const DEFAULT_DESCRIPTION =
     'PicklePlay is the home of pickleball in the Philippines. Find and book courts, join tournaments, track rankings, connect with players, and grow your game all in one place.';
-const DEFAULT_IMAGE = 'https://www.pickleplay.ph/images/PicklePlayLogo.jpg';
+const DEFAULT_IMAGE = 'https://www.pickleplay.ph/images/og-image.jpg';
 const BASE_URL = 'https://www.pickleplay.ph';
+
+/** Adds the site name to a page title unless the title already names the brand ("… | PicklePlay"). */
+export const formatPageTitle = (title: string): string =>
+    /pickleplay/i.test(title) ? title : `${title} - ${SITE_NAME}`;
 
 interface SEOProps {
     title?: string;
@@ -28,7 +32,7 @@ const useSEO = ({
     structuredData = null,
 }: SEOProps = {}) => {
     useEffect(() => {
-        document.title = title.includes(SITE_NAME) ? title : `${title} - ${SITE_NAME}`;
+        document.title = formatPageTitle(title);
 
         const setMeta = (selector: string, attr: string, value: string) => {
             let el = document.querySelector<HTMLMetaElement>(selector);
@@ -84,6 +88,15 @@ const useSEO = ({
         setMeta('meta[property="og:title"]', 'content', fullTitle);
         setMeta('meta[property="og:description"]', 'content', description);
         setMeta('meta[property="og:image"]', 'content', image);
+        // The static 1200x630 dimensions in index.html only describe the default share image.
+        if (image === DEFAULT_IMAGE) {
+            setMeta('meta[property="og:image:width"]', 'content', '1200');
+            setMeta('meta[property="og:image:height"]', 'content', '630');
+        } else {
+            document.querySelector('meta[property="og:image:width"]')?.remove();
+            document.querySelector('meta[property="og:image:height"]')?.remove();
+            document.querySelector('meta[property="og:image:type"]')?.remove();
+        }
         setMeta('meta[property="og:url"]', 'content', canonicalUrl);
 
         setMeta('meta[name="twitter:title"]', 'content', fullTitle);

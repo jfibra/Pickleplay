@@ -11,7 +11,6 @@ const STATIC_ROUTES = [
   { path: '/guides', lastmod: '2026-03-18', changefreq: 'weekly', priority: '0.7' },
   { path: '/guides/skill-rating', lastmod: '2026-03-18', changefreq: 'monthly', priority: '0.6' },
   { path: '/rankings', lastmod: '2026-03-18', changefreq: 'weekly', priority: '0.7' },
-  { path: '/shop', lastmod: '2026-03-18', changefreq: 'weekly', priority: '0.7' },
   { path: '/faq', lastmod: '2026-03-18', changefreq: 'monthly', priority: '0.5' },
   { path: '/terms', lastmod: '2026-03-18', changefreq: 'yearly', priority: '0.3' },
   { path: '/policy', lastmod: '2026-03-18', changefreq: 'yearly', priority: '0.3' },

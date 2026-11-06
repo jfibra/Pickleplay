@@ -1,25 +1,11 @@
-// GuideReader - Component for reading guide content with login gate
-import React, { useState, useEffect } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
-import {
-    BookOpen,
-    Clock,
-    Eye,
-    ChevronLeft,
-    ChevronRight,
-    Lock,
-    Lightbulb,
-    CheckCircle,
-    ArrowRight,
-    Home,
-    LogIn,
-    Star,
-    Share2,
-    Bookmark
-} from 'lucide-react';
-import { getGuideBySlug, updateGuideProgress, getUserGuideProgress, Guide, GuideSection } from '../../services/guides';
+// GuideReader - One section per screen, with a members-only gate for guests
+import React, { useState, useEffect, useCallback } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { getGuideBySlug, updateGuideProgress, getUserGuideProgress, Guide } from '../../services/guides';
 import { supabase } from '../../services/supabase';
 import useSEO from '../../hooks/useSEO';
+import GuideScreen, { GuideText, SegmentedProgress } from './GuideScreen';
 
 interface GuideReaderProps {
     isLoggedIn: boolean;
@@ -27,12 +13,10 @@ interface GuideReaderProps {
 
 const GuideReader: React.FC<GuideReaderProps> = ({ isLoggedIn }) => {
     const { slug } = useParams<{ slug: string }>();
-    const navigate = useNavigate();
     const [guide, setGuide] = useState<Guide | null>(null);
     const [loading, setLoading] = useState(true);
     const [currentSection, setCurrentSection] = useState(0);
     const [userId, setUserId] = useState<string | null>(null);
-    const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
     useEffect(() => {
         const checkUser = async () => {
@@ -52,11 +36,10 @@ const GuideReader: React.FC<GuideReaderProps> = ({ isLoggedIn }) => {
             if (result.success && result.data) {
                 setGuide(result.data);
 
-                // Fetch user's progress if logged in
                 if (userId) {
                     const progressResult = await getUserGuideProgress(userId, result.data.id);
                     if (progressResult.success && progressResult.data) {
-                        setCurrentSection(progressResult.data.current_section);
+                        setCurrentSection(Math.min(progressResult.data.current_section, result.data.content.length - 1));
                     }
                 }
             }
@@ -65,7 +48,6 @@ const GuideReader: React.FC<GuideReaderProps> = ({ isLoggedIn }) => {
         fetchGuide();
     }, [slug, userId]);
 
-    // Save progress when section changes
     useEffect(() => {
         if (userId && guide) {
             updateGuideProgress(userId, guide.id, currentSection, guide.content.length);
@@ -94,425 +76,152 @@ const GuideReader: React.FC<GuideReaderProps> = ({ isLoggedIn }) => {
             : null,
     });
 
-    const handleNextSection = () => {
-        if (!guide) return;
+    const isLocked = useCallback(
+        (index: number) => !isLoggedIn && !(guide?.content[index]?.is_free ?? false),
+        [isLoggedIn, guide]
+    );
 
-        const nextSection = currentSection + 1;
-        const section = guide.content[nextSection];
+    const goTo = useCallback(
+        (index: number) => {
+            if (!guide || index < 0 || index >= guide.content.length || isLocked(index)) return;
+            setCurrentSection(index);
+        },
+        [guide, isLocked]
+    );
 
-        // Check if user can access the next section
-        if (!isLoggedIn && section && !section.is_free) {
-            setShowLoginPrompt(true);
-            return;
-        }
-
-        if (nextSection < guide.content.length) {
-            setCurrentSection(nextSection);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-    };
-
-    const handlePrevSection = () => {
-        if (currentSection > 0) {
-            setCurrentSection(currentSection - 1);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-    };
-
-    const handleSectionClick = (index: number) => {
-        if (!guide) return;
-
-        const section = guide.content[index];
-        if (!isLoggedIn && !section.is_free) {
-            setShowLoginPrompt(true);
-            return;
-        }
-
-        setCurrentSection(index);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
-
-    // Loading state for logged-in users (cleaner layout)
-    if (loading && isLoggedIn) {
-        return (
-            <div className="space-y-10 animate-fade-in pb-12">
-                <div className="animate-pulse space-y-6">
-                    <div className="h-8 bg-slate-200 rounded-xl w-32"></div>
-                    <div className="h-12 bg-slate-200 rounded-2xl w-3/4"></div>
-                    <div className="h-64 bg-slate-200 rounded-3xl"></div>
-                </div>
-            </div>
-        );
-    }
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            const target = e.target as HTMLElement | null;
+            if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
+            if (e.key === 'ArrowRight') goTo(currentSection + 1);
+            if (e.key === 'ArrowLeft') goTo(currentSection - 1);
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [goTo, currentSection]);
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-slate-50 pt-24 pb-12 px-4 md:px-8">
-                <div className="max-w-4xl mx-auto">
-                    <div className="animate-pulse space-y-6">
-                        <div className="h-8 bg-slate-200 rounded-xl w-32"></div>
-                        <div className="h-12 bg-slate-200 rounded-2xl w-3/4"></div>
-                        <div className="h-64 bg-slate-200 rounded-3xl"></div>
-                    </div>
+            <GuideScreen isLoggedIn={isLoggedIn}>
+                <div className="animate-pulse space-y-4" aria-busy="true">
+                    <div className="h-4 bg-slate-100 rounded w-24" />
+                    <div className="h-10 bg-slate-100 rounded w-3/4" />
+                    <div className="h-4 bg-slate-100 rounded w-full" />
+                    <div className="h-4 bg-slate-100 rounded w-5/6" />
                 </div>
-            </div>
+            </GuideScreen>
         );
     }
 
-    // Not found state for logged-in users
-    if (!guide && isLoggedIn) {
+    if (!guide || guide.content.length === 0) {
         return (
-            <div className="space-y-10 animate-fade-in pb-12">
-                <div className="text-center py-16">
-                    <BookOpen className="mx-auto text-slate-300 mb-4" size={64} />
-                    <h1 className="text-2xl font-bold text-slate-900 mb-2">Guide Not Found</h1>
-                    <p className="text-slate-500 mb-6">The guide you're looking for doesn't exist.</p>
-                    <Link to="/guides" className="bg-blue-600 text-white px-6 py-3 rounded-full font-bold hover:bg-blue-700 transition-colors">
-                        Browse All Guides
+            <GuideScreen isLoggedIn={isLoggedIn}>
+                <h1 className="text-3xl md:text-5xl font-black text-slate-950 tracking-tighter">Guide not found</h1>
+                <p className="mt-4 text-slate-600">
+                    This guide may have been moved or unpublished.{' '}
+                    <Link to="/guides" className="font-semibold text-slate-950 underline decoration-lime-400 decoration-2 underline-offset-4">
+                        See all guides
                     </Link>
-                </div>
-            </div>
+                    .
+                </p>
+            </GuideScreen>
         );
     }
 
-    if (!guide) {
-        return (
-            <div className="min-h-screen bg-slate-50 pt-24 pb-12 px-4 md:px-8">
-                <div className="max-w-4xl mx-auto text-center">
-                    <BookOpen className="mx-auto text-slate-300 mb-4" size={64} />
-                    <h1 className="text-2xl font-bold text-slate-900 mb-2">Guide Not Found</h1>
-                    <p className="text-slate-500 mb-6">The guide you're looking for doesn't exist.</p>
-                    <Link to="/guides" className="bg-blue-600 text-white px-6 py-3 rounded-full font-bold hover:bg-blue-700 transition-colors">
-                        Browse All Guides
-                    </Link>
-                </div>
-            </div>
-        );
-    }
-
+    const total = guide.content.length;
     const section = guide.content[currentSection];
-    const progress = ((currentSection + 1) / guide.content.length) * 100;
-    const isLastSection = currentSection === guide.content.length - 1;
-    const canAccessNextSection = isLoggedIn || (guide.content[currentSection + 1]?.is_free ?? false);
+    const next = guide.content[currentSection + 1];
+    const isLast = currentSection === total - 1;
+    const nextLocked = !isLast && isLocked(currentSection + 1);
 
-    // Common elements used in both views
-    const loginPromptModal = showLoginPrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
-            <div className="bg-white w-full max-w-md rounded-3xl p-6 md:p-8 shadow-2xl relative animate-in slide-in-from-bottom-4 duration-300">
-                <div className="text-center">
-                    <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                        <Lock className="text-blue-600" size={32} />
-                    </div>
-                    <h2 className="text-2xl font-black text-slate-900 mb-2">Unlock Full Guide</h2>
-                    <p className="text-slate-500 mb-6">
-                        You've reached the preview limit! Sign up for free to continue reading and track your progress.
-                    </p>
+    const primaryButton = 'inline-flex items-center gap-2 rounded-full bg-slate-950 text-white px-5 md:px-6 py-3 text-sm font-semibold hover:bg-slate-800 transition-colors min-w-0';
 
-                    <div className="space-y-3">
-                        <Link
-                            to="/signup"
-                            className="block w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 transition-colors"
-                        >
-                            Sign Up Free
-                        </Link>
-                        <Link
-                            to="/login"
-                            className="block w-full bg-slate-100 text-slate-700 py-4 rounded-2xl font-bold hover:bg-slate-200 transition-colors"
-                        >
-                            I Already Have an Account
-                        </Link>
-                        <button
-                            onClick={() => setShowLoginPrompt(false)}
-                            className="text-slate-400 hover:text-slate-600 text-sm font-medium"
-                        >
-                            Continue Reading Preview
-                        </button>
-                    </div>
+    const footer = (
+        <div className="flex items-center justify-between gap-4">
+            <button
+                type="button"
+                onClick={() => goTo(currentSection - 1)}
+                disabled={currentSection === 0}
+                className="inline-flex items-center gap-2 py-3 text-sm font-semibold text-slate-500 hover:text-slate-950 disabled:invisible transition-colors shrink-0"
+            >
+                <ArrowLeft size={16} />
+                Previous
+            </button>
+
+            {isLast ? (
+                <Link to="/guides" className={primaryButton}>
+                    Finish
+                    <ArrowRight size={16} className="shrink-0" />
+                </Link>
+            ) : nextLocked ? (
+                <div className="flex items-center gap-4 min-w-0">
+                    <Link to="/login" className="hidden sm:inline text-sm font-semibold text-slate-500 hover:text-slate-950 transition-colors">
+                        Log in
+                    </Link>
+                    <Link to="/signup" className={primaryButton}>
+                        <span className="truncate">Sign up to keep reading</span>
+                        <ArrowRight size={16} className="shrink-0" />
+                    </Link>
                 </div>
-            </div>
+            ) : (
+                <button type="button" onClick={() => goTo(currentSection + 1)} className={primaryButton}>
+                    <span className="truncate">
+                        <span className="hidden sm:inline">Next: </span>
+                        <span className="sm:hidden">Next</span>
+                        <span className="hidden sm:inline">{next.title}</span>
+                    </span>
+                    <ArrowRight size={16} className="shrink-0" />
+                </button>
+            )}
         </div>
     );
 
-    const sectionContent = (
-        <>
-            {/* Section Content */}
-            <article className="bg-white rounded-2xl md:rounded-3xl p-5 md:p-10 shadow-sm border border-slate-200">
-                <div className="flex items-center gap-3 mb-6">
-                    <div className="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center font-black shrink-0">
-                        {section.section}
-                    </div>
-                    <h2 className="text-lg md:text-2xl font-black text-slate-900">
+    return (
+        <GuideScreen
+            isLoggedIn={isLoggedIn}
+            counter={`${currentSection + 1} / ${total}`}
+            progress={
+                <SegmentedProgress
+                    count={total}
+                    current={currentSection}
+                    isLocked={isLocked}
+                    onSelect={goTo}
+                    labelFor={(i) => guide.content[i].title}
+                />
+            }
+            footer={footer}
+        >
+            <article key={currentSection} className="animate-fade-in lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-x-16">
+                <div>
+                    <h1 className="mb-2 text-sm font-normal text-slate-500 truncate">{guide.title}</h1>
+                    <h2 className="text-2xl md:text-4xl font-black text-slate-950 tracking-tight leading-tight">
                         {section.title}
                     </h2>
-                </div>
-
-                <div className="prose prose-lg max-w-none">
-                    {section.content.split('\n\n').map((paragraph, idx) => (
-                        <p key={idx} className="text-slate-600 leading-relaxed mb-4 whitespace-pre-wrap text-sm md:text-base">
-                            {paragraph.split('**').map((text, i) =>
-                                i % 2 === 1 ? <strong key={i} className="text-slate-900">{text}</strong> : text
-                            )}
+                    {section.tip && (
+                        <p className="hidden lg:block mt-8 text-base leading-relaxed text-slate-600">
+                            <span className="font-semibold text-slate-950">Tip: </span>
+                            {section.tip}
                         </p>
-                    ))}
+                    )}
+                    {nextLocked && (
+                        <p className="hidden lg:block mt-6 text-sm text-slate-500">
+                            That's the free preview. The remaining {total - currentSection - 1} sections are for members, and an account is free.
+                        </p>
+                    )}
                 </div>
 
-                {/* Tip Box */}
-                {section.tip && (
-                    <div className="mt-8 bg-lime-50 border border-lime-200 rounded-2xl p-4 md:p-6 flex gap-3 md:gap-4">
-                        <div className="shrink-0">
-                            <div className="w-8 h-8 md:w-10 md:h-10 bg-lime-500 rounded-xl flex items-center justify-center">
-                                <Lightbulb className="text-white" size={16} />
-                            </div>
-                        </div>
-                        <div>
-                            <h4 className="font-bold text-lime-800 mb-1 text-sm md:text-base">Pro Tip</h4>
-                            <p className="text-lime-700 text-sm md:text-base">{section.tip}</p>
-                        </div>
-                    </div>
-                )}
+                <div className="mt-4 md:mt-6 lg:mt-1 max-w-2xl">
+                    <GuideText content={section.content} />
+
+                    {section.tip && (
+                        <p className="lg:hidden mt-5 md:mt-6 text-[15px] md:text-base leading-relaxed text-slate-600">
+                            <span className="font-semibold text-slate-950">Tip: </span>
+                            {section.tip}
+                        </p>
+                    )}
+                </div>
             </article>
-
-            {/* Navigation */}
-            <div className="mt-6 md:mt-8 flex items-center justify-between gap-2 md:gap-4">
-                <button
-                    onClick={handlePrevSection}
-                    disabled={currentSection === 0}
-                    className="flex items-center gap-1 md:gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-full font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:hover:bg-transparent transition-colors text-sm md:text-base"
-                >
-                    <ChevronLeft size={18} />
-                    <span className="hidden sm:inline">Previous</span>
-                </button>
-
-                {!isLastSection ? (
-                    <button
-                        onClick={handleNextSection}
-                        className={`flex items-center gap-1 md:gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-full font-bold transition-colors text-sm md:text-base ${canAccessNextSection
-                                ? 'bg-blue-600 text-white hover:bg-blue-700'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                    >
-                        {canAccessNextSection ? (
-                            <>
-                                <span className="hidden sm:inline">Next</span>
-                                <span className="sm:hidden">Next</span>
-                            </>
-                        ) : (
-                            <>
-                                <Lock size={14} />
-                                <span className="hidden sm:inline">Unlock Next</span>
-                                <span className="sm:hidden">Unlock</span>
-                            </>
-                        )}
-                        <ChevronRight size={18} />
-                    </button>
-                ) : (
-                    <Link
-                        to="/guides"
-                        className="flex items-center gap-1 md:gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-full font-bold bg-lime-500 text-white hover:bg-lime-600 transition-colors text-sm md:text-base"
-                    >
-                        <CheckCircle size={18} />
-                        <span className="hidden sm:inline">Complete! More Guides</span>
-                        <span className="sm:hidden">Done</span>
-                    </Link>
-                )}
-            </div>
-
-            {/* Section Navigation Dots */}
-            <div className="mt-6 md:mt-8 flex flex-wrap justify-center gap-1.5 md:gap-2">
-                {guide.content.map((s, idx) => {
-                    const isAccessible = isLoggedIn || s.is_free;
-                    const isCurrent = idx === currentSection;
-                    const isCompleted = idx < currentSection;
-
-                    return (
-                        <button
-                            key={idx}
-                            onClick={() => handleSectionClick(idx)}
-                            className={`group relative w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center transition-all ${isCurrent
-                                    ? 'bg-blue-600 text-white'
-                                    : isCompleted
-                                        ? 'bg-lime-500 text-white'
-                                        : isAccessible
-                                            ? 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                                            : 'bg-slate-100 text-slate-300'
-                                }`}
-                            title={s.title}
-                        >
-                            {isCompleted ? (
-                                <CheckCircle size={12} />
-                            ) : !isAccessible ? (
-                                <Lock size={10} />
-                            ) : (
-                                <span className="text-xs font-bold">{idx + 1}</span>
-                            )}
-                        </button>
-                    );
-                })}
-            </div>
-        </>
-    );
-
-    // =============================================
-    // LOGGED IN USER VIEW - Sidebar compatible layout
-    // =============================================
-    if (isLoggedIn) {
-        return (
-            <div className="space-y-6 animate-fade-in pb-12">
-                {loginPromptModal}
-
-                {/* Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div>
-                        <Link to="/guides" className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors mb-3">
-                            <ChevronLeft size={18} />
-                            <span className="font-medium text-sm">All Guides</span>
-                        </Link>
-                        <h1 className="text-2xl md:text-3xl lg:text-4xl font-black text-slate-950 tracking-tighter">
-                            {guide.title}
-                        </h1>
-                        <div className="flex flex-wrap items-center gap-3 mt-3 text-sm text-slate-500">
-                            <span className="flex items-center gap-1.5">
-                                <Clock size={14} />
-                                {guide.estimated_read_time} min
-                            </span>
-                            <span className="bg-green-100 text-green-700 px-2.5 py-0.5 rounded-full font-medium capitalize text-xs">
-                                {guide.difficulty_level}
-                            </span>
-                            <span className="text-slate-400">
-                                Section {currentSection + 1} of {guide.content.length}
-                            </span>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button className="p-2.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-colors">
-                            <Share2 size={18} className="text-slate-500" />
-                        </button>
-                        <button className="p-2.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-colors">
-                            <Bookmark size={18} className="text-slate-500" />
-                        </button>
-                    </div>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="bg-white rounded-2xl p-4 border border-slate-200">
-                    <div className="flex items-center justify-between text-sm mb-2">
-                        <span className="text-slate-500">Progress</span>
-                        <span className="font-bold text-slate-900">{Math.round(progress)}%</span>
-                    </div>
-                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                            className="h-full bg-gradient-to-r from-blue-500 to-lime-500 rounded-full transition-all duration-500"
-                            style={{ width: `${progress}%` }}
-                        ></div>
-                    </div>
-                </div>
-
-                {sectionContent}
-            </div>
-        );
-    }
-
-    // =============================================
-    // NON-LOGGED IN USER VIEW - Original full-page layout
-    // =============================================
-    return (
-        <div className="min-h-screen bg-slate-50 pt-20 pb-24">
-            {loginPromptModal}
-
-            {/* Header */}
-            <header className="bg-white border-b border-slate-100 sticky top-16 z-40">
-                <div className="max-w-4xl mx-auto px-4 py-4">
-                    <div className="flex items-center justify-between">
-                        <Link to="/guides" className="flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors">
-                            <ChevronLeft size={20} />
-                            <span className="font-medium text-sm hidden sm:inline">All Guides</span>
-                        </Link>
-
-                        <div className="flex items-center gap-2 sm:gap-4">
-                            <span className="text-sm text-slate-400">
-                                {currentSection + 1} / {guide.content.length}
-                            </span>
-                            <button className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
-                                <Share2 size={18} className="text-slate-400" />
-                            </button>
-                            <button className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
-                                <Bookmark size={18} className="text-slate-400" />
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div className="mt-4 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                            className="h-full bg-gradient-to-r from-blue-500 to-lime-500 rounded-full transition-all duration-500"
-                            style={{ width: `${progress}%` }}
-                        ></div>
-                    </div>
-                </div>
-            </header>
-
-            {/* Main Content */}
-            <main className="max-w-4xl mx-auto px-4 py-6 md:py-8">
-                {/* Title (only on first section) */}
-                {currentSection === 0 && (
-                    <div className="mb-6 md:mb-8">
-                        <div className="flex flex-wrap items-center gap-2 text-slate-400 text-xs sm:text-sm mb-4">
-                            <Link to="/" className="hover:text-blue-600 transition-colors">Home</Link>
-                            <ChevronRight size={12} />
-                            <Link to="/guides" className="hover:text-blue-600 transition-colors">Guides</Link>
-                            <ChevronRight size={12} />
-                            <span className="text-slate-600 truncate max-w-[150px] sm:max-w-none">{guide.title}</span>
-                        </div>
-
-                        <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-slate-900 tracking-tight mb-4">
-                            {guide.title}
-                        </h1>
-
-                        <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-sm text-slate-500">
-                            <span className="flex items-center gap-1.5">
-                                <Clock size={14} />
-                                {guide.estimated_read_time} min read
-                            </span>
-                            <span className="flex items-center gap-1.5">
-                                <Eye size={14} />
-                                {guide.view_count} views
-                            </span>
-                            <span className="bg-green-100 text-green-700 px-2.5 py-0.5 rounded-full font-medium capitalize text-xs">
-                                {guide.difficulty_level}
-                            </span>
-                        </div>
-                    </div>
-                )}
-
-                {sectionContent}
-            </main>
-
-            {/* Login Banner (for non-logged-in users) */}
-            <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 sm:py-4 px-4 z-30">
-                <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
-                    <div className="flex items-center gap-2 sm:gap-3">
-                        <Star className="text-blue-300 shrink-0" size={20} />
-                        <p className="font-medium text-center sm:text-left text-sm sm:text-base">
-                            <span className="font-bold">Sign up free</span> to unlock all sections!
-                        </p>
-                    </div>
-                    <div className="flex gap-2 sm:gap-3">
-                        <Link
-                            to="/login"
-                            className="px-4 sm:px-5 py-2 rounded-full font-bold text-white/90 hover:text-white transition-colors text-sm"
-                        >
-                            Log In
-                        </Link>
-                        <Link
-                            to="/signup"
-                            className="bg-white text-blue-600 px-4 sm:px-5 py-2 rounded-full font-bold hover:bg-blue-50 transition-colors text-sm"
-                        >
-                            Sign Up Free
-                        </Link>
-                    </div>
-                </div>
-            </div>
-        </div>
+        </GuideScreen>
     );
 };
 

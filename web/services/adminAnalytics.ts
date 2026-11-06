@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { CourtManagerStatus, UserRole } from '../types';
+import type { CourtManagerStatus } from '../types';
 
 export type GrowthRange = '7D' | '1M' | '6M' | '1Y';
 
@@ -30,17 +30,6 @@ export interface UserAnalytics {
   suspended: number;
   byRole: UserRoleBreakdown[];
   growth: ChartPoint[];
-}
-
-export interface AdminUserRow {
-  id: string;
-  name: string;
-  subtitle: string;
-  role: UserRole;
-  status: 'Active' | 'Suspended' | 'Pending';
-  joinedDate: string;
-  dupr: number;
-  avatarUrl?: string;
 }
 
 export interface CourtAnalyticsRow {
@@ -102,18 +91,6 @@ const resolveDisplayName = (profile: {
   const email = profile.email?.trim();
   if (email) return email.split('@')[0];
   return `User ${profile.id.slice(0, 8)}`;
-};
-
-const resolveSubtitle = (profile: {
-  username?: string | null;
-  email?: string | null;
-  id: string;
-}) => {
-  const email = profile.email?.trim();
-  if (email) return email;
-  const username = profile.username?.trim();
-  if (username) return `@${username}`;
-  return `ID: ${profile.id.slice(0, 8)}`;
 };
 
 const daysAgoIso = (days: number) => {
@@ -227,10 +204,11 @@ export async function fetchPlatformOverview(): Promise<PlatformOverviewMetrics> 
     managersPendingRes,
     growth,
   ] = await Promise.all([
-    supabase.from('profiles').select('*', { count: 'exact', head: true }),
+    supabase.from('profiles').select('*', { count: 'exact', head: true }).is('deleted_at', null),
     supabase
       .from('profiles')
       .select('*', { count: 'exact', head: true })
+      .is('deleted_at', null)
       .gt('updated_at', oneDayAgo),
     supabase.from('courts').select('*', { count: 'exact', head: true }),
     supabase
@@ -267,8 +245,8 @@ export async function fetchPlatformOverview(): Promise<PlatformOverviewMetrics> 
 
 export async function fetchUserAnalytics(): Promise<UserAnalytics> {
   const [{ count: total }, { data: profiles }, growth] = await Promise.all([
-    supabase.from('profiles').select('*', { count: 'exact', head: true }),
-    supabase.from('profiles').select('active_role, account_status'),
+    supabase.from('profiles').select('*', { count: 'exact', head: true }).is('deleted_at', null),
+    supabase.from('profiles').select('active_role, account_status').is('deleted_at', null),
     fetchUserGrowthSeries('1M'),
   ]);
 
@@ -291,45 +269,6 @@ export async function fetchUserAnalytics(): Promise<UserAnalytics> {
     suspended,
     byRole,
     growth: growth.series,
-  };
-}
-
-export async function fetchAdminUsersPage(options: {
-  offset?: number;
-  limit?: number;
-  roleFilter?: UserRole | 'all';
-}): Promise<{ users: AdminUserRow[]; hasMore: boolean }> {
-  const offset = options.offset ?? 0;
-  const limit = options.limit ?? 100;
-  const roleFilter = options.roleFilter ?? 'all';
-
-  let query = supabase
-    .from('profiles')
-    .select('id, full_name, username, email, active_role, created_at, account_status, avatar_url, dupr_rating')
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
-
-  if (roleFilter !== 'all') {
-    query = query.eq('active_role', roleFilter);
-  }
-
-  const { data: profiles, error } = await query;
-  if (error) throw error;
-
-  const users: AdminUserRow[] = (profiles || []).map((p) => ({
-    id: p.id,
-    name: resolveDisplayName(p),
-    subtitle: resolveSubtitle(p),
-    role: (p.active_role as UserRole) || 'PLAYER',
-    status: (p.account_status as AdminUserRow['status']) || 'Active',
-    joinedDate: p.created_at?.split('T')[0] || '',
-    dupr: Number(p.dupr_rating) || 0,
-    avatarUrl: p.avatar_url || undefined,
-  }));
-
-  return {
-    users,
-    hasMore: (profiles || []).length === limit,
   };
 }
 
