@@ -41,6 +41,30 @@
             "destination": "/api/v1/news/articles/slug/:slug?format=html"
         },
         {
+            "source": "/api/admin/(.*)",
+            "destination": "/api/express?__route=/api/admin/$1"
+        },
+        {
+            "source": "/api/court-managers/(.*)",
+            "destination": "/api/express?__route=/api/court-managers/$1"
+        },
+        {
+            "source": "/api/auth/2fa/(.*)",
+            "destination": "/api/express?__route=/api/auth/2fa/$1"
+        },
+        {
+            "source": "/api/auth/qr/(.*)",
+            "destination": "/api/express?__route=/api/auth/qr/$1"
+        },
+        {
+            "source": "/api/auth/security/(.*)",
+            "destination": "/api/express?__route=/api/auth/security/$1"
+        },
+        {
+            "source": "/api/events/(.*)",
+            "destination": "/api/express?__route=/api/events/$1"
+        },
+        {
             "source": "/api/(.*)",
             "destination": "/api/$1"
         },
